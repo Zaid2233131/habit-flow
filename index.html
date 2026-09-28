@@ -19,6 +19,135 @@
   console.log("Habit Flow: Supabase connected");
 </script>
 
+<script>
+async function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+
+  const rawData = atob(base64);
+
+  return Uint8Array.from(
+    [...rawData].map(char => char.charCodeAt(0))
+  );
+}
+
+
+async function registerPushNotifications() {
+
+  try {
+
+    if (!("serviceWorker" in navigator)) {
+      console.warn("Service workers are not supported.");
+      return false;
+    }
+
+    if (!("PushManager" in window)) {
+      console.warn("Web Push is not supported.");
+      return false;
+    }
+
+    if (!("Notification" in window)) {
+      console.warn("Notifications are not supported.");
+      return false;
+    }
+
+
+    const permission = await Notification.requestPermission();
+
+    if (permission !== "granted") {
+      console.warn("Notification permission denied.");
+      return false;
+    }
+
+
+    const registration = await navigator.serviceWorker.ready;
+
+    let subscription = await registration.pushManager.getSubscription();
+
+
+    if (!subscription) {
+
+      const applicationServerKey =
+        await urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+
+      subscription =
+        await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey
+        });
+
+    }
+
+
+    const user = await getCurrentUser();
+
+    if (!user) {
+      console.warn("No logged-in user. Push subscription not saved.");
+      return false;
+    }
+
+
+    const json = subscription.toJSON();
+
+    const endpoint = json.endpoint;
+    const p256dh = json.keys?.p256dh;
+    const auth = json.keys?.auth;
+
+
+    if (!endpoint || !p256dh || !auth) {
+      console.error("Invalid push subscription.");
+      return false;
+    }
+
+
+    const { error } = await supabaseClient
+      .from("push_subscriptions")
+      .upsert(
+        {
+          user_id: user.id,
+          endpoint,
+          p256dh,
+          auth,
+          device_name: /iPhone|iPad|iPod/i.test(navigator.userAgent)
+            ? "iPhone"
+            : "Browser"
+        },
+        {
+          onConflict: "user_id,endpoint"
+        }
+      );
+
+
+    if (error) {
+      console.error(
+        "❌ Could not save push subscription:",
+        error
+      );
+
+      return false;
+    }
+
+
+    console.log(
+      "✅ Push subscription saved to Supabase"
+    );
+
+    return true;
+
+  } catch (error) {
+
+    console.error(
+      "❌ Push registration failed:",
+      error
+    );
+
+    return false;
+  }
+}
+</script>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">

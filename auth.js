@@ -406,3 +406,7 @@ await loadSchedulesFromCloud();
   updateMode();
   initializeAuth();
 })();
+
+setTimeout(() => {
+  registerPushNotifications();
+}, 2000);
