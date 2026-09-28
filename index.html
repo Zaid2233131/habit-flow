@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+<title>Habit Flow</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-config.js"></script>
+
+<script>
+  const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+  );
+
+  console.log("Habit Flow: Supabase connected");
+</script>
+
+<script>
+async function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+
+  const rawData = atob(base64);
+
+  return Uint8Array.from(
+    [...rawData].map(char => char.charCodeAt(0))
+  );
+}
+
+
+async function registerPushNotifications() {
+
+  try {
+
+    if (!("serviceWorker" in navigator)) {
+      console.warn("Service workers are not supported.");
+      return false;
+    }
+
+    if (!("PushManager" in window)) {
+      console.warn("Web Push is not supported.");
+      return false;
+    }
+
+    if (!("Notification" in window)) {
+      console.warn("Notifications are not supported.");
+      return false;
+    }
+
+
+    const permission = await Notification.requestPermission();
+
+    if (permission !== "granted") {
+      console.warn("Notification permission denied.");
+      return false;
+    }
+
+
+    const registration = await navigator.serviceWorker.ready;
+
+    let subscription = await registration.pushManager.getSubscription();
+
+
+    if (!subscription) {
+
+      const applicationServerKey =
+        await urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+
+      subscription =
+        await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey
+        });
+
+    }
+
+
+    const user = await getCurrentUser();
+
+    if (!user) {
+      console.warn("No logged-in user. Push subscription not saved.");
+      return false;
+    }
+
+
+    const json = subscription.toJSON();
+
+    const endpoint = json.endpoint;
+    const p256dh = json.keys?.p256dh;
+    const auth = json.keys?.auth;
+
+
+    if (!endpoint || !p256dh || !auth) {
+      console.error("Invalid push subscription.");
+      return false;
+    }
+
+
+    const { error } = await supabaseClient
+      .from("push_subscriptions")
+      .upsert(
+        {
+          user_id: user.id,
+          endpoint,
+          p256dh,
+          auth,
+          device_name: /iPhone|iPad|iPod/i.test(navigator.userAgent)
+            ? "iPhone"
+            : "Browser"
+        },
+        {
+          onConflict: "user_id,endpoint"
+        }
+      );
+
+
+    if (error) {
+      console.error(
+        "❌ Could not save push subscription:",
+        error
+      );
+
+      return false;
+    }
+
+
+    console.log(
+      "✅ Push subscription saved to Supabase"
+    );
+
+    return true;
+
+  } catch (error) {
+
+    console.error(
+      "❌ Push registration failed:",
+      error
+    );
+
+    return false;
+  }
+}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg:#f5f6f4; --surface:#ffffff; --border:#e3e6e0; --text:#1b201c; --dim:#666f68;
+  --accent:#2f6f5e; --accent-soft:#e3efe9; --danger:#c1503f; --radius:16px;
+  --shadow:0 1px 2px rgba(20,30,24,.04),0 6px 16px rgba(20,30,24,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){--bg:#141715;--surface:#1d211e;--border:#2c322d;--text:#eef1ee;--dim:#93a196;--accent:#5fae97;--accent-soft:#213229;--shadow:0 1px 2px rgba(0,0,0,.3),0 6px 16px rgba(0,0,0,.25);}
+}
+:root[data-theme="dark"]{--bg:#141715;--surface:#1d211e;--border:#2c322d;--text:#eef1ee;--dim:#93a196;--accent:#5fae97;--accent-soft:#213229;--shadow:0 1px 2px rgba(0,0,0,.3),0 6px 16px rgba(0,0,0,.25);}
+*{box-sizing:border-box;}
+html,body{height:100%;margin:0;}
+body{background:var(--bg);color:var(--text);font-family:'Manrope',system-ui,-apple-system,sans-serif;
+  padding-top:env(safe-area-inset-top,0);padding-bottom:env(safe-area-inset-bottom,0);-webkit-font-smoothing:antialiased;}
+button,select,input{font-family:inherit;color:inherit;}
+.layout{display:flex;min-height:100%;}
+.sidebar{display:none;width:210px;flex-direction:column;padding:24px 14px;border-right:1px solid var(--border);position:sticky;top:0;height:100vh;}
+.brand{font-weight:800;font-size:19px;letter-spacing:-.02em;padding:0 10px 24px;}
+.navitem{display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:10px;color:var(--dim);cursor:pointer;font-size:14.5px;font-weight:600;margin-bottom:2px;}
+.navitem svg{width:18px;height:18px;flex-shrink:0;}
+.navitem.active{background:var(--accent-soft);color:var(--accent);}
+.navitem:hover:not(.active){background:var(--border);}
+.side-bottom{margin-top:auto;}
+.main{flex:1;min-width:0;padding:28px 20px 100px;max-width:640px;margin:0 auto;width:100%;}
+.topbar{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}
+h1{font-size:22px;margin:0 0 2px;letter-spacing:-.01em;}
+.sub{color:var(--dim);font-size:14px;margin:0;}
+.iconbtn{background:var(--surface);border:1px solid var(--border);width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.iconbtn svg{width:18px;height:18px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;margin-bottom:16px;}
+.card h2{font-size:14px;margin:0 0 12px;font-weight:700;}
+.hero-num{font-size:40px;font-weight:800;letter-spacing:-.02em;line-height:1;}
+.hero-label{color:var(--dim);font-size:13px;margin-top:4px;}
+.track{height:9px;border-radius:6px;background:var(--border);overflow:hidden;margin:14px 0 6px;}
+.fill{height:100%;background:var(--accent);border-radius:6px;transition:width .5s ease;}
+.item{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--border);}
+.item:last-child{border-bottom:none;}
+.check{width:22px;height:22px;border-radius:50%;border:2px solid var(--border);flex-shrink:0;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;transition:.12s;}
+.check.done{background:var(--accent);border-color:var(--accent);}
+.check.skip{background:var(--dim);border-color:var(--dim);}
+.itname{flex:1;font-size:14.5px;font-weight:600;}
+.itname.strike{text-decoration:line-through;color:var(--dim);}
+.tag{font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;background:var(--accent-soft);color:var(--accent);white-space:nowrap;}
+.tag.p1{background:#f6dedb;color:var(--danger);}
+.tag.p2{background:#f6ecd8;color:#a3760f;}
+.tag.p4{background:var(--border);color:var(--dim);}
+.dark .tag.p1,:root[data-theme=dark] .tag.p1{background:#3a2420;}
+.meta{font-size:12px;color:var(--dim);}
+.delbtn{background:none;border:none;color:var(--dim);cursor:pointer;font-size:16px;padding:4px 6px;}
+.section-title{font-size:12.5px;font-weight:700;color:var(--dim);margin:22px 0 8px;padding-left:2px;}
+.section-title:first-child{margin-top:0;}
+.empty{text-align:center;padding:34px 10px;color:var(--dim);}
+.empty p{margin:0 0 14px;font-size:14px;}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:14px;cursor:pointer;}
+.btn.ghost{background:var(--surface);border:1px solid var(--border);color:var(--text);}
+.rowflex{display:flex;justify-content:space-between;align-items:center;}
+.fab{position:fixed;right:20px;bottom:calc(78px + env(safe-area-inset-bottom,0));width:54px;height:54px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:26px;box-shadow:0 6px 18px rgba(0,0,0,.22);cursor:pointer;z-index:20;}
+.bottomnav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--surface);border-top:1px solid var(--border);padding:8px 6px calc(8px + env(safe-area-inset-bottom,0));z-index:15;}
+.bnitem{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--dim);font-size:10.5px;font-weight:700;cursor:pointer;}
+.bnitem svg{width:20px;height:20px;}
+.bnitem.active{color:var(--accent);}
+.moodrow{display:flex;justify-content:space-between;margin-top:6px;}
+.moodbtn{font-size:24px;background:none;border:2px solid transparent;border-radius:12px;padding:6px 10px;cursor:pointer;}
+.moodbtn.sel{border-color:var(--accent);background:var(--accent-soft);}
+.overlay{position:fixed;inset:0;background:rgba(10,15,12,.45);display:none;align-items:flex-end;justify-content:center;z-index:30;}
+.overlay.show{display:flex;}
+.modal{background:var(--surface);width:100%;max-width:440px;border-radius:20px 20px 0 0;padding:22px 20px calc(22px + env(safe-area-inset-bottom,0));max-height:88vh;overflow:auto;}
+@media (min-width:600px){.overlay{align-items:center;}.modal{border-radius:20px;}}
+.modal h2{margin-top:0;}
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:12.5px;font-weight:700;color:var(--dim);margin-bottom:6px;}
+.field input,.field select{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);font-size:14.5px;}
+.seg{display:flex;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:3px;margin-bottom:16px;}
+.seg button{flex:1;background:none;border:none;padding:8px;border-radius:8px;font-weight:700;font-size:13.5px;color:var(--dim);cursor:pointer;}
+.seg button.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow);}
+.modalfoot{display:flex;gap:10px;margin-top:6px;}
+.modalfoot .btn{flex:1;}
+.bar{flex:1;background:var(--accent-soft);border-radius:5px 5px 0 0;position:relative;min-height:3px;}
+.barfill{background:var(--accent);border-radius:5px 5px 0 0;width:100%;position:absolute;bottom:0;}
+.barwrap{display:flex;align-items:flex-end;gap:8px;height:120px;margin:10px 0 8px;}
+.barcol{flex:1;display:flex;flex-direction:column;align-items:center;height:100%;}
+.barday{font-size:10.5px;color:var(--dim);margin-top:6px;}
+.flame{font-size:12.5px;color:var(--dim);white-space:nowrap;}
+@media (min-width:840px){.sidebar{display:flex;}.bottomnav{display:none;}.fab{right:calc(50% - 320px + 20px);}
+  body:has(.layout){}
+}
+.sitem{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px}
+.st-active{border-left-color:var(--accent);background:var(--accent-soft)}.st-starting-soon{border-left-color:var(--accent)}
+.st-overdue{border-left-color:var(--danger)}.st-snoozed{border-left-color:#d19a1f}
+.st-completed{border-left-color:#3f9b62}.st-completed .itname{color:var(--dim)}.st-skipped,.st-expired{opacity:.6}
+.tag.t-overdue{background:#f6dedb;color:var(--danger)}.tag.t-snoozed{background:#f6ecd8;color:#a3760f}
+.tag.t-completed{background:#dcf0e3;color:#2e7d4f}.tag.t-skipped,.tag.t-expired{background:var(--border);color:var(--dim)}
+.sact{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center}
+.btn.sm{padding:8px 12px;font-size:13px;min-height:38px}
+.trow{display:grid;grid-template-columns:46px 1fr;gap:8px}.ttime{font-size:12px;font-weight:700;color:var(--dim);padding-top:14px}
+.nowline{display:flex;align-items:center;gap:8px;color:var(--danger);font-weight:800;font-size:12px;margin:6px 0 12px}
+.nowline:before,.nowline:after{content:'';height:2px;background:var(--danger);flex:1}.nowline:before{flex:0 0 14px}
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tabs button{flex:1;min-width:0;padding:8px 0;border-radius:10px;border:1px solid var(--border);background:var(--surface);font-weight:700;font-size:12px;line-height:1.3;color:var(--dim);cursor:pointer}
+.tabs button.on{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px;font-weight:600;margin:0 0 14px}.chk input{width:auto}
+.badge{position:absolute;top:-5px;right:-5px;background:var(--danger);color:#fff;font-size:10px;font-weight:800;border-radius:10px;padding:1px 5px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom,0));background:var(--text);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:60;opacity:0;pointer-events:none;transition:opacity .25s;max-width:90%}
+.toast.show{opacity:1}
+.alarm{text-align:center}.alarm .big{font-size:26px;font-weight:800;margin:6px 0}.alarm .pulse{font-size:40px;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{transform:scale(1.12)}}@media(prefers-reduced-motion:reduce){.alarm .pulse{animation:none}}
+@media(min-width:840px){.toast{bottom:30px}}
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="sidebar">
+    <div class="brand">Habit Flow</div>
+    <div class="navitem" data-page="today">TODAY_ICON Today</div>
+    <div class="navitem" data-page="schedule">SCHEDULE_ICON Schedule</div>
+    <div class="navitem" data-page="habits">HABITS_ICON Habits</div>
+    <div class="navitem" data-page="tasks">TASKS_ICON Tasks</div>
+    <div class="navitem" data-page="progress">PROGRESS_ICON Progress</div>
+    <div class="side-bottom navitem" data-page="settings">SETTINGS_ICON Settings</div>
+  </div>
+  <div class="main" id="main"></div>
+</div>
+<button class="fab" id="fab">+</button>
+<div class="bottomnav">
+  <div class="bnitem" data-page="today">TODAY_ICON<span>Today</span></div>
+  <div class="bnitem" data-page="schedule">SCHEDULE_ICON<span>Schedule</span></div>
+  <div class="bnitem" data-page="habits">HABITS_ICON<span>Habits</span></div>
+  <div class="bnitem" data-page="tasks">TASKS_ICON<span>Tasks</span></div>
+  <div class="bnitem" data-page="settings">SETTINGS_ICON<span>More</span></div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modalBody"></div>
+</div>
+
+<script>
+const ICONS={
+  schedule:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  today:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
+  habits:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c4-2 7-5.5 7-10a7 7 0 0 0-7-7c-1 2-1 4 .5 5.5C10 9 9 6.5 10 4c-3 1.5-5 4.5-5 8 0 4.5 3 8 7 10Z"/></svg>',
+  tasks:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8.5 12 2.5 2.5 5-5"/></svg>',
+  progress:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M12 20V4M20 20v-7"/></svg>',
+  settings:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 0 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9c.26.42.63.75 1.55 1H21a2 2 0 0 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z"/></svg>'
+};
+document.querySelectorAll('.navitem,.bnitem').forEach(el=>{
+  const p=el.dataset.page;
+  el.innerHTML=el.innerHTML.replace(p.toUpperCase()+'_ICON',ICONS[p]);
+});
+
+const KEY='habitflow-data-v2',OLD_KEY='habitflow-data-v1'; // v1 is left untouched as a backup
+const CATS=['Health','Fitness','Study','Work','Personal','Other'];
+function defaultState(){return{v:2,name:'there',theme:'system',habits:[],tasks:[],moods:{},schedules:[],notifications:[],reminderLogs:[],settings:{notificationsEnabled:false,mode:'normal',sound:'default',taskRem:true,habitRem:true,routineRem:true,overdueRem:true,quiet:{enabled:false,start:'23:00',end:'06:00'},simOffset:0}};}
+function load(){try{const raw=localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY);return migrateV1ToV2(raw?JSON.parse(raw):{});}catch(e){return defaultState();}}
+function save(){localStorage.setItem(KEY,JSON.stringify(state));}
+/* ===== v2: date/time utils (local timezone, never UTC) ===== */
+const pad=n=>String(n).padStart(2,'0');
+function localKey(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+function now(){const o=(state&&state.settings&&state.settings.simOffset)||0;return new Date(Date.now()+o*60000);} // single clock; simulated-time aware
+const minutesSinceMidnight=d=>d.getHours()*60+d.getMinutes();
+const isToday=k=>k===localKey(now());
+const getLocalDateKey=()=>localKey(now());
+const getLocalTime=()=>pad(now().getHours())+':'+pad(now().getMinutes());
+/* ===== v2: state schema + migration ===== */
+function migrateV1ToV2(o){
+  const d=defaultState(),s=Object.assign(d,o||{});
+  s.settings=Object.assign(d.settings,(o&&o.settings)||{});
+  s.settings.quiet=Object.assign({enabled:false,start:'23:00',end:'06:00'},s.settings.quiet||{});
+  ['schedules','notifications','reminderLogs'].forEach(k=>{if(!Array.isArray(s[k]))s[k]=[];});
+  s.v=2;return s; // habits/tasks/moods pass through untouched
+}
+let state=load();
+applyTheme();
+function applyTheme(){document.documentElement.setAttribute('data-theme',state.theme==='system'?'':state.theme);}
+
+let page='today';
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const todayKey=()=>localKey(now());
+function keyOffset(n){const d=now();d.setDate(d.getDate()+n);return localKey(d);}
+function fmtLong(k){const d=new Date(k+'T00:00:00');return d.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'});}
+
+function streakFor(h){
+  let cur=now(); let s=0;
+  let k=localKey(cur);
+  if(h.completions[k]!=='done'){cur.setDate(cur.getDate()-1);}
+  while(true){
+    k=localKey(cur);
+    const st=h.completions[k];
+    if(st==='done'){s++;cur.setDate(cur.getDate()-1);}
+    else if(st==='skip'){cur.setDate(cur.getDate()-1);}
+    else break;
+  }
+  return s;
+}
+function rate30(h){
+  let done=0,tracked=0;
+  const created=new Date(h.createdAt);
+  for(let i=0;i<30;i++){
+    const d=now(); d.setDate(d.getDate()-i);
+    if(d<created) break;
+    const k=localKey(d);
+    const st=h.completions[k];
+    if(st==='skip') continue;
+    tracked++;
+    if(st==='done') done++;
+  }
+  return tracked?Math.round(done/tracked*100):0;
+}
+async function toggleHabit(id){
+  const h = state.habits.find(x => x.id === id);
+  if (!h) return;
+
+  const k = todayKey();
+  const cur = h.completions[k];
+
+  const next =
+    cur === "done"
+      ? "skip"
+      : cur === "skip"
+        ? undefined
+        : "done";
+
+  if (next === undefined) {
+    delete h.completions[k];
+  } else {
+    h.completions[k] = next;
+  }
+
+  const s = streakFor(h);
+
+  if (s > (h.longest || 0)) {
+    h.longest = s;
+  }
+
+  // Keep the UI fast
+  save();
+  render();
+
+  // Sync with Supabase
+  const synced = await saveHabitCompletionToCloud(
+    h.id,
+    k,
+    next
+  );
+
+  if (synced) {
+    console.log("✅ Completion synced to Supabase");
+  }
+}
+
+async function toggleTask(id){
+  const task = state.tasks.find(x => x.id === id);
+
+  if(!task) return;
+
+  task.completed = !task.completed;
+
+  task.completedAt = task.completed
+    ? todayKey()
+    : null;
+
+  // Update UI immediately
+  save();
+  render();
+
+  // Update Supabase
+  const synced = await updateTaskInCloud(task);
+
+  if(synced){
+    console.log("✅ Task completion synced to Supabase");
+  }
+}
+
+
+function delHabit(id){state.habits=state.habits.filter(h=>h.id!==id);save();render();}
+async function delTask(id){
+  const task = state.tasks.find(t => t.id === id);
+
+  if(!task) return;
+
+  state.tasks = state.tasks.filter(t => t.id !== id);
+
+  save();
+  render();
+
+  const deleted = await deleteTaskFromCloud(id);
+
+  if(deleted){
+    console.log("✅ Task deleted from Supabase");
+  }
+}
+
+function todaysTasks(){
+  return state.tasks.filter(t=>(!t.completed && (!t.due||t.due<=todayKey())) || (t.completed && t.completedAt===todayKey()));
+}
+function greeting(){const h=now().getHours();return h<12?'Good morning':h<18?'Good afternoon':'Good evening';}
+
+function renderToday(){
+  const habits=state.habits, tt=todaysTasks();
+  const doneH=habits.filter(h=>h.completions[todayKey()]==='done').length;
+  const doneT=tt.filter(t=>t.completed).length;
+  const sx=schedProgress(); const total=habits.length+tt.length+sx.t, done=doneH+doneT+sx.d;
+  const pct=total?Math.round(done/total*100):0;
+  let html=`<div class="topbar"><div><h1>${greeting()}, ${esc(state.name)}</h1><p class="sub">${fmtLong(todayKey())}</p></div>${bellBtn()}</div>`;
+  html+=schedSummary();
+  if(total===0){
+    html+=`<div class="card empty"><p>Nothing planned yet. Add a habit or task to start building your day.</p><button class="btn" onclick="openModal('habit')">Add your first habit</button></div>`;
+  } else {
+    html+=`<div class="card"><div class="hero-num">${pct}%</div><div class="hero-label">Today's progress</div><div class="track"><div class="fill" style="width:${pct}%"></div></div><div class="meta">${done} of ${total} completed</div></div>`;
+  }
+  if(tt.length){
+    html+=`<div class="section-title">Today's tasks</div><div class="card">`+tt.sort((a,b)=>a.priority.localeCompare(b.priority)).map(t=>`
+      <div class="item"><div class="check ${t.completed?'done':''}" onclick="toggleTask('${t.id}')">${t.completed?'✓':''}</div>
+      <div class="itname ${t.completed?'strike':''}">${esc(t.title)}</div><span class="tag ${t.priority.toLowerCase()}">${t.priority}</span>
+      <button class="delbtn" onclick="delTask('${t.id}')">×</button></div>`).join('')+`</div>`;
+  }
+  if(habits.length){
+    html+=`<div class="section-title">Today's habits</div><div class="card">`+habits.map(h=>{
+      const st=h.completions[todayKey()];
+      return `<div class="item"><div class="check ${st==='done'?'done':st==='skip'?'skip':''}" onclick="toggleHabit('${h.id}')">${st==='done'?'✓':st==='skip'?'–':''}</div>
+      <div class="itname">${esc(h.name)}</div><span class="flame">🔥 ${streakFor(h)}</span></div>`;
+    }).join('')+`</div>`;
+  }
+  html+=`<div class="section-title">Quick reflection</div><div class="card"><div class="meta">How was today?</div><div class="moodrow">${['😞','😐','🙂','😄','🔥'].map(m=>`<button class="moodbtn ${state.moods[todayKey()]===m?'sel':''}" onclick="setMood('${m}')">${m}</button>`).join('')}</div></div>`;
+  return html;
+}
+function setMood(m){state.moods[todayKey()]=m;save();render();}
+
+function renderHabits(){
+  let html=`<div class="topbar"><div><h1>Habits</h1><p class="sub">${state.habits.length} active</p></div><button class="btn" onclick="openModal('habit')">+ Add</button></div>`;
+  if(!state.habits.length){html+=`<div class="card empty"><p>No habits yet. Build your first one and start creating consistency.</p><button class="btn" onclick="openModal('habit')">Add habit</button></div>`;return html;}
+  const byCat={}; state.habits.forEach(h=>{(byCat[h.category]=byCat[h.category]||[]).push(h);});
+  Object.keys(byCat).forEach(cat=>{
+    html+=`<div class="section-title">${cat}</div><div class="card">`+byCat[cat].map(h=>`
+      <div class="item"><div class="check ${h.completions[todayKey()]==='done'?'done':''}" onclick="toggleHabit('${h.id}')">${h.completions[todayKey()]==='done'?'✓':''}</div>
+      <div style="flex:1"><div class="itname">${esc(h.name)}</div><div class="meta">🔥 ${streakFor(h)} current · ${h.longest||0} best · ${rate30(h)}% last 30d</div></div>
+      <button class="delbtn" onclick="delHabit('${h.id}')">×</button></div>`).join('')+`</div>`;
+  });
+  return html;
+}
+
+function renderTasks(){
+  let html=`<div class="topbar"><div><h1>Tasks</h1><p class="sub">${state.tasks.filter(t=>!t.completed).length} open</p></div><button class="btn" onclick="openModal('task')">+ Add</button></div>`;
+  if(!state.tasks.length){html+=`<div class="card empty"><p>No tasks yet. Add what needs to get done.</p><button class="btn" onclick="openModal('task')">Add task</button></div>`;return html;}
+  const open=state.tasks.filter(t=>!t.completed).sort((a,b)=>a.priority.localeCompare(b.priority));
+  const done=state.tasks.filter(t=>t.completed);
+  html+=`<div class="card">`+(open.length?open.map(taskRow).join(''):'<div class="meta" style="padding:8px 0">Nothing open — nice work.</div>')+`</div>`;
+  if(done.length) html+=`<div class="section-title">Completed</div><div class="card">`+done.map(taskRow).join('')+`</div>`;
+  return html;
+}
+function taskRow(t){
+  return `<div class="item"><div class="check ${t.completed?'done':''}" onclick="toggleTask('${t.id}')">${t.completed?'✓':''}</div>
+  <div style="flex:1"><div class="itname ${t.completed?'strike':''}">${esc(t.title)}</div>${t.category||t.due?`<div class="meta">${[t.category,t.due].filter(Boolean).join(' · ')}</div>`:''}</div>
+  <span class="tag ${t.priority.toLowerCase()}">${t.priority}</span><button class="delbtn" onclick="delTask('${t.id}')">×</button></div>`;
+}
+
+function renderProgress(){
+  let html=`<div class="topbar"><div><h1>Progress</h1><p class="sub">Last 7 days</p></div></div>`;
+  html+=schedStats();
+  if(!state.habits.length){html+=`<div class="card empty"><p>Add some habits to see your trends here.</p></div>`;return html;}
+  const days=[...Array(7)].map((_,i)=>keyOffset(i-6));
+  const pcts=days.map(k=>{
+    const active=state.habits.filter(h=>new Date(h.createdAt)<=new Date(k+'T23:59:59'));
+    if(!active.length) return null;
+    const done=active.filter(h=>h.completions[k]==='done').length;
+    return Math.round(done/active.length*100);
+  });
+  html+=`<div class="card"><h2>Daily completion</h2><div class="barwrap">${days.map((k,i)=>`
+    <div class="barcol"><div class="bar" style="height:100%"><div class="barfill" style="height:${pcts[i]??0}%"></div></div>
+    <div class="barday">${new Date(k+'T00:00:00').toLocaleDateString(undefined,{weekday:'narrow'})}</div></div>`).join('')}</div></div>`;
+  const withRate=state.habits.map(h=>({h,r:rate30(h)})).sort((a,b)=>b.r-a.r);
+  const best=withRate[0], worst=withRate[withRate.length-1];
+  html+=`<div class="card"><h2>Highlights</h2>
+    <div class="item"><div class="itname">Most consistent</div><div class="meta">${esc(best.h.name)} · ${best.r}%</div></div>
+    <div class="item"><div class="itname">Needs attention</div><div class="meta">${esc(worst.h.name)} · ${worst.r}%</div></div>
+    <div class="item"><div class="itname">Longest streak</div><div class="meta">${Math.max(...state.habits.map(h=>h.longest||0))} days</div></div>
+  </div>`;
+  return html;
+}
+
+function renderSettings(){
+  return `<div class="topbar"><div><h1>Settings</h1></div></div>
+  <div class="card"><div class="rowflex"><div class="itname">Progress &amp; analytics</div><button class="btn ghost" onclick="page='progress';render()">Open</button></div></div>
+  <div class="card"><div class="field"><label>Your name</label><input id="setName" value="${esc(state.name)}"></div>
+  <div class="field"><label>Theme</label><select id="setTheme">
+    <option value="system" ${state.theme==='system'?'selected':''}>System</option>
+    <option value="light" ${state.theme==='light'?'selected':''}>Light</option>
+    <option value="dark" ${state.theme==='dark'?'selected':''}>Dark</option>
+  </select></div>
+  <button class="btn" onclick="saveSettings()">Save</button></div>
+  ${notifSettings()}
+  <div class="card"><h2>Data</h2><p class="meta" style="margin-bottom:12px">Everything is stored privately in this browser only — nothing leaves your device.</p>
+  <button class="btn ghost" onclick="resetAll()">Reset all data</button></div>`;
+}
+function saveSettings(){
+  state.name=document.getElementById('setName').value||'there';
+  state.theme=document.getElementById('setTheme').value;
+  save();applyTheme();render();
+}
+function resetAll(){if(confirm('Delete all habits, tasks and history? This cannot be undone.')){state=defaultState();save();applyTheme();render();}}
+
+function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+function render(){
+  document.getElementById('main').innerHTML={today:renderToday,schedule:renderSchedule,habits:renderHabits,tasks:renderTasks,progress:renderProgress,settings:renderSettings}[page]();
+  document.querySelectorAll('.navitem,.bnitem').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
+  afterRender();
+}
+document.querySelectorAll('.navitem,.bnitem').forEach(el=>el.addEventListener('click',()=>{page=el.dataset.page;schedScrolled=false;render();}));
+
+function openModal(type){
+  document.getElementById('modalBody').innerHTML=`<div class="seg">${['habit','task','schedule'].map(t=>`<button data-t="${t}" class="${t===type?'on':''}" onclick="switchSeg('${t}')">${{habit:'Habit',task:'Task',schedule:'Schedule'}[t]}</button>`).join('')}</div><div id="formArea"></div>`;
+  window._modalType=type;fillForm();document.getElementById('overlay').classList.add('show');
+}
+function switchSeg(t){window._modalType=t;document.querySelectorAll('.seg button').forEach(b=>b.className=b.dataset.t===t?'on':'');fillForm();}
+function fillForm(){
+  const t=window._modalType;
+  const area=document.getElementById('formArea');
+  if(t==='schedule'){area.innerHTML=schedForm();durHint();}
+  else if(t==='habit'){
+    area.innerHTML=`<h2>New habit</h2>
+    <div class="field"><label>Name</label><input id="hName" placeholder="e.g. Read 10 pages"></div>
+    <div class="field"><label>Category</label><select id="hCat">${CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+    <div class="modalfoot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="submitHabit()">Add habit</button></div>`;
+  } else {
+    area.innerHTML=`<h2>New task</h2>
+    <div class="field"><label>Title</label><input id="tTitle" placeholder="e.g. Finish assignment"></div>
+    <div class="field"><label>Priority</label><select id="tPri"><option value="P1">P1 — Critical</option><option value="P2">P2 — Important</option><option value="P3" selected>P3 — Normal</option><option value="P4">P4 — Optional</option></select></div>
+    <div class="field"><label>Category (optional)</label><input id="tCat" placeholder="e.g. College"></div>
+    <div class="field"><label>Due date (optional)</label><input id="tDue" type="date"></div>
+    <div class="modalfoot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="submitTask()">Add task</button></div>`;
+  }
+}
+function closeModal(){document.getElementById('overlay').classList.remove('show');}
+async function submitHabit(){
+  const name = document.getElementById('hName').value.trim();
+
+  if(!name) return;
+
+  const habit = {
+    id: uid(),
+    name,
+    category: document.getElementById('hCat').value,
+    completions: {},
+    longest: 0,
+    createdAt: new Date().toISOString()
+  };
+
+  // Show it immediately in the app
+  state.habits.push(habit);
+  save();
+  closeModal();
+  render();
+
+  // Save it to Supabase
+  const saved = await saveHabitToCloud(habit);
+
+  if(saved){
+    // Save again because Supabase gives the habit its permanent ID
+    save();
+
+    console.log("✅ Habit synced to Supabase");
+  } else {
+    console.error("❌ Habit was not synced to Supabase");
+  }
+}
+
+async function submitTask(){
+  const title = document.getElementById('tTitle').value.trim();
+
+  if(!title) return;
+
+  const task = {
+    id: uid(),
+    title,
+    priority: document.getElementById('tPri').value,
+    category: document.getElementById('tCat').value.trim(),
+    due: document.getElementById('tDue').value || null,
+    completed: false,
+    completedAt: null,
+    createdAt: new Date().toISOString()
+  };
+
+  // Show immediately
+  state.tasks.push(task);
+  save();
+  closeModal();
+  render();
+
+  // Save to Supabase
+  const synced = await saveTaskToCloud(task);
+
+  if(synced){
+    save();
+    console.log("✅ Task synced to Supabase");
+  }
+}
+
+document.getElementById('fab').addEventListener('click',()=>openModal(page==='tasks'?'task':page==='schedule'?'schedule':'habit'));
+document.getElementById('overlay').addEventListener('click',e=>{if(e.target.id==='overlay')closeModal();});
+
+/* ===== v2: schedule model + status engine ===== */
+const TRACKED=['task','habit','routine'];
+const DAYNAMES=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const STL={upcoming:'Upcoming','starting-soon':'Starting soon',active:'Active',overdue:'Overdue',completed:'Completed',snoozed:'Snoozed',skipped:'Skipped',expired:'Passed'};
+const TI={task:'✅',habit:'🔁',routine:'🌅',event:'📌',break:'☕'};
+let schedDate=null,schedScrolled=false,swReg=null,_tt;
+const toMin=t=>{const p=t.split(':');return +p[0]*60+ +p[1];};
+const fmtT=m=>pad(Math.floor(m/60))+':'+pad(m%60);
+const fmtDur=m=>m<60?m+' min':Math.floor(m/60)+'h'+(m%60?' '+m%60+'m':'');
+const atMs=(dk,m)=>new Date(dk+'T00:00:00').getTime()+m*60000;
+const findItem=id=>state.schedules.find(x=>x.id===id);
+function occurs(it,dk){
+  if(it.repeat==='once')return it.date===dk;
+  if(dk<it.date)return false;
+  const w=new Date(dk+'T00:00:00').getDay();
+  return it.repeat==='daily'||(it.repeat==='weekdays'&&w>0&&w<6)||(it.repeat==='weekends'&&(w===0||w===6))||(it.repeat==='custom'&&(it.days||[]).includes(w));
+}
+const itemsFor=dk=>state.schedules.filter(it=>occurs(it,dk));
+const occR=(it,dk)=>(it.log&&it.log[dk])||{};                       // read-only per-day record
+const occW=(it,dk)=>{it.log=it.log||{};return it.log[dk]=it.log[dk]||{};}; // create on write
+function slot(it,dk){const o=occR(it,dk);return{s:toMin(o.ov?o.ov.start:it.start),e:toMin(o.ov?o.ov.end:it.end)};}
+function linkedOf(it){return{h:it.habitId&&state.habits.find(x=>x.id===it.habitId),t:it.taskId&&state.tasks.find(x=>x.id===it.taskId)};}
+/* SOURCE OF TRUTH for time logic: every screen + the reminder engine call this. */
+function getScheduleStatus(it,dk,n){
+  n=n||now();const o=occR(it,dk),L=linkedOf(it);
+  if(o.status==='completed'||(L.h&&L.h.completions[dk]==='done')||(L.t&&L.t.completed))return'completed';
+  if(o.status==='skipped'||(L.h&&L.h.completions[dk]==='skip'))return'skipped';
+  const today=localKey(n);
+  if(dk<today)return'expired';
+  if(dk>today)return'upcoming';
+  const m=minutesSinceMidnight(n),t=slot(it,dk);
+  if(o.snoozeUntil&&n.getTime()<o.snoozeUntil)return'snoozed';
+  if(m<t.s)return t.s-m<=(it.remindBefore||15)?'starting-soon':'upcoming';
+  if(m<t.e)return'active';
+  return TRACKED.includes(it.type)?'overdue':'expired'; // events/breaks just pass; only tasks/habits/routines go overdue
+}
+/* ===== v2: user actions (complete / start / skip / snooze / reschedule) ===== */
+function resetRem(o){o.fired={};o.rc=0;o.last=0;} // cancels old reminders; engine re-derives new ones from state
+function logAction(id,act){for(let i=state.reminderLogs.length-1;i>=0;i--){const l=state.reminderLogs[i];if(l.id===id&&!l.action){l.action=act;l.actAt=now().getTime();break;}}}
+function schedAct(id,dk,act){
+  const it=findItem(id);if(!it)return;
+  stopAlarmSound();
+  const n=now(),m=minutesSinceMidnight(n),o=occW(it,dk),L=linkedOf(it),planned=toMin(o.origStart||it.start);
+  if(act==='start'){o.startedAt=n.getTime();toast('Started '+it.title);}
+  if(act==='complete'){
+    o.status='completed';o.completedAt=n.getTime();
+    const ref=o.startedAt?Math.floor((o.startedAt-atMs(dk,0))/60000):m;
+    o.delay=Math.max(0,ref-planned); // minutes later than planned start
+    if(L.h){L.h.completions[dk]='done';const s=streakFor(L.h);if(s>(L.h.longest||0))L.h.longest=s;}
+    if(L.t){L.t.completed=true;L.t.completedAt=dk;}
+    toast(o.delay>5?'✓ Completed '+fmtDur(o.delay)+' late.':'✓ Completed on time');
+  }
+  if(act==='skip'){o.status='skipped';if(L.h)L.h.completions[dk]='skip';}
+  logAction(id, act);
+
+save();
+closeModal();
+render();
+
+// Sync the schedule action to Supabase
+updateScheduleOccurrenceToCloud(it, dk, act)
+  .then(synced => {
+    if (synced) {
+      console.log("✅ Schedule action synced to Supabase");
+    }
+  });
+}
+function doSnooze(id,dk,mins){
+  stopAlarmSound();
+  const it=findItem(id),n=now(),o=occW(it,dk),t=slot(it,dk);
+  o.origStart=o.origStart||it.start; // original time stays in history
+  const s=Math.min(Math.max(minutesSinceMidnight(n),t.s)+mins,1430),dur=Math.max(t.e-t.s,5);
+  o.ov={start:fmtT(s),end:fmtT(Math.min(s+dur,1439))};
+  o.snoozeUntil=n.getTime()+mins*60000;o.snoozes=(o.snoozes||0)+1;resetRem(o);
+  logAction(id,'snooze');save();
+closeModal();
+render();
+
+updateScheduleTimeToCloud(it, dk, "snooze", o)
+  .then(synced => {
+    if (synced) {
+      console.log("✅ Snooze synced to Supabase");
+    }
+  });
+}
+function doResched(id,dk){
+  stopAlarmSound();
+  const it=findItem(id),a=document.getElementById('rStart').value,b=document.getElementById('rEnd').value;
+  if(!a||!b||toMin(b)<=toMin(a)){toast('End time must be after start time');return;}
+  const o=occW(it,dk);o.origStart=o.origStart||it.start;o.ov={start:a,end:b};o.snoozeUntil=0;
+  o.reschedules=(o.reschedules||0)+1;
+resetRem(o);
+logAction(id,'reschedule');
+
+save();
+closeModal();
+render();
+toast('Rescheduled to '+a);
+
+updateScheduleTimeToCloud(
+  it,
+  dk,
+  "reschedule",
+  {
+    ov: {
+      start: a,
+      end: b
+    }
+  }
+)
+  .then(synced => {
+    if (synced) {
+      console.log("✅ Reschedule synced to Supabase");
+    }
+  });
+}
+function nextItem(){const n=now(),dk=localKey(n);return itemsFor(dk).map(it=>({it,dk,st:getScheduleStatus(it,dk,n),t:slot(it,dk)})).filter(x=>x.st==='upcoming'||x.st==='starting-soon').sort((a,b)=>a.t.s-b.t.s)[0];}
+function startNext(){const x=nextItem();if(!x)return toast('Nothing upcoming');const n=now(),o=occW(x.it,x.dk),m=minutesSinceMidnight(n);o.origStart=o.origStart||x.it.start;o.ov={start:fmtT(m),end:fmtT(Math.min(m+(x.t.e-x.t.s),1439))};o.startedAt=n.getTime();resetRem(o);save();render();toast('Started '+x.it.title);}
+function snoozeNext(){const x=nextItem();if(x)doSnooze(x.it.id,x.dk,15);else toast('Nothing upcoming');}
+function delSched(id){
+  const it=findItem(id);
+
+  if(it && confirm(
+    'Delete "' + it.title + '"' +
+    (it.repeat !== 'once' ? ' and all its repeats' : '') +
+    '?'
+  )){
+    state.schedules = state.schedules.filter(x => x.id !== id);
+
+    save();
+    render();
+
+    deleteScheduleFromCloud(id)
+      .then(synced => {
+        if(synced){
+          console.log("✅ Schedule deletion synced to Supabase");
+        }
+      });
+  }
+}
+/* ===== v2: notifications + ReminderManager ===== */
+function toast(msg,ms){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(_tt);_tt=setTimeout(()=>el.classList.remove('show'),ms||3200);}
+function pushNote(msg,type){state.notifications.unshift({id:uid(),msg,type,at:now().getTime(),read:false});state.notifications.length=Math.min(state.notifications.length,60);}
+function browserNotify(msg,id){
+  if(!('Notification' in window)||Notification.permission!=='granted')return;
+  const o={body:msg,tag:'hf-'+id,icon:'icon-192.png'}; // same tag => OS replaces instead of stacking
+  try{if(swReg&&swReg.showNotification)swReg.showNotification('Habit Flow',o).catch(()=>new Notification('Habit Flow',o));else new Notification('Habit Flow',o);}catch(e){}
+}
+let alarmAudioCtx = null;
+let alarmOsc = null;
+let alarmGain = null;
+let alarmTimer = null;
+
+function unlockAlarmAudio(){
+  try{
+    if(!alarmAudioCtx){
+      alarmAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    if(alarmAudioCtx.state === 'suspended'){
+      alarmAudioCtx.resume();
+    }
+  }catch(e){}
+}
+
+document.addEventListener('pointerdown', unlockAlarmAudio, {once:false});
+document.addEventListener('keydown', unlockAlarmAudio, {once:false});
+
+function startAlarmSound(){
+
+  const v = state.settings.sound;
+
+  if(v === 'off') return;
+
+  try{
+
+    unlockAlarmAudio();
+
+    if(!alarmAudioCtx) return;
+
+    stopAlarmSound();
+
+    alarmOsc = alarmAudioCtx.createOscillator();
+    alarmGain = alarmAudioCtx.createGain();
+
+    alarmOsc.frequency.value =
+      v === 'strong' ? 880 :
+      v === 'soft' ? 440 :
+      660;
+
+    alarmGain.gain.value =
+      v === 'strong' ? 0.22 :
+      v === 'soft' ? 0.08 :
+      0.15;
+
+    alarmOsc.connect(alarmGain);
+    alarmGain.connect(alarmAudioCtx.destination);
+
+    alarmOsc.start();
+
+    // Pulse the alarm every 900ms
+    let high = true;
+
+    alarmTimer = setInterval(() => {
+
+      if(!alarmGain || !alarmAudioCtx) return;
+
+      high = !high;
+
+      alarmGain.gain.setTargetAtTime(
+        high ? 0.15 : 0.02,
+        alarmAudioCtx.currentTime,
+        0.04
+      );
+
+    }, 900);
+
+  }catch(e){
+    console.warn('Alarm audio blocked:', e);
+  }
+}
+
+function stopAlarmSound(){
+
+  if(alarmTimer){
+    clearInterval(alarmTimer);
+    alarmTimer = null;
+  }
+
+  try{
+    if(alarmOsc){
+      alarmOsc.stop();
+      alarmOsc.disconnect();
+    }
+  }catch(e){}
+
+  try{
+    if(alarmGain){
+      alarmGain.disconnect();
+    }
+  }catch(e){}
+
+  alarmOsc = null;
+  alarmGain = null;
+}
+function showAlarm(id,dk){
+  const it=findItem(id),t=slot(it,dk);
+  modal(`<div class="alarm"><div class="pulse">⏰</div><div class="meta">TIME TO START</div><div class="big">${esc(it.title)}</div><div class="meta">${fmtT(t.s)} – ${fmtT(t.e)}</div><p class="meta">Don't postpone unnecessarily.</p>
+  <div class="sact" style="justify-content:center"><button class="btn" onclick="schedAct('${id}','${dk}','start')">Start now</button><button class="btn ghost" onclick="doSnooze('${id}','${dk}',15)">Snooze 15 min</button><button class="btn ghost" onclick="openResched('${id}','${dk}')">Reschedule</button><button class="btn ghost" onclick="schedAct('${id}','${dk}','skip')">Skip</button></div>
+  <button class="delbtn" style="margin-top:10px" onclick="stopAlarmSound();logAction('${id}','dismiss');closeModal()">Dismiss</button></div>`);
+  startAlarmSound();
+}
+const ReminderManager={
+  timer:null,
+  start(){if(this.timer)return;this.tick();this.timer=setInterval(()=>this.tick(),15000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)this.tick();});}, // ONE interval only
+  allowed(it,n){
+    const S=state.settings;if(!S.notificationsEnabled||it.notify===false)return false;
+    if(!S[{task:'taskRem',habit:'habitRem',routine:'routineRem'}[it.type]||'taskRem'])return false;
+    const q=S.quiet;
+    if(q.enabled&&it.priority!=='P1'){const m=minutesSinceMidnight(n),a=toMin(q.start),b=toMin(q.end);if(a>b?(m>=a||m<b):(m>=a&&m<b))return false;}
+    return true;
+  },
+  fire(it,dk,type,msg){
+    pushNote(msg,type);
+    state.reminderLogs.push({id:it.id,item:it.title,at:now().getTime(),type,shown:true,action:null});
+    if(state.reminderLogs.length>500)state.reminderLogs.splice(0,100);
+    browserNotify(msg,it.id);
+    if(state.settings.mode==='alarm'&&type==='start')showAlarm(it.id,dk);else toast(msg,6000);
+  },
+  /* Stateless: everything is derived from stored times + per-day counters saved in state,
+     so a refresh / reopen rebuilds itself and never double-fires (Cases 6 & 7). */
+  tick(){
+    const S=state.settings;if(!S.notificationsEnabled)return;
+    const n=now(),dk=localKey(n),nm=n.getTime(),m=minutesSinceMidnight(n);let dirty=false;
+    itemsFor(dk).forEach(it=>{
+      const st=getScheduleStatus(it,dk,n);
+      if(['completed','skipped','snoozed','expired'].includes(st))return; // never notify after done/skip/snooze/day end
+      if(!this.allowed(it,n))return;
+      const o=occW(it,dk),t=slot(it,dk);o.fired=o.fired||{};
+      if(it.remindBefore>0&&S.mode!=='gentle'&&!o.fired.pre&&m>=t.s-it.remindBefore&&m<t.s){o.fired.pre=1;o.last=nm;dirty=true;this.fire(it,dk,'pre',it.title+' starts in '+(t.s-m)+' min.');}
+      if(m>=t.s&&!o.fired.start){
+        o.fired.start=1;o.last=nm;dirty=true;
+        this.fire(it,dk,'start',m-t.s>30?it.title+' was due at '+fmtT(t.s)+' and is still waiting.':"It's time for "+it.title+'.');
+      }else if(o.fired.start&&it.monitor&&TRACKED.includes(it.type)&&S.overdueRem&&S.mode!=='gentle'){
+        const cap=Math.min(S.mode==='normal'?1:(it.maxRem||20),20),gap=Math.max(it.interval||60,5)*60000; // hard ceiling of 20; min 5-minute gap
+        if((o.rc||0)<cap&&nm-(o.last||0)>=gap){o.rc=(o.rc||0)+1;o.last=nm;dirty=true;this.fire(it,dk,'followup',st==='overdue'?it.title+' is still incomplete. Complete it now or reschedule?':"You haven't completed "+it.title+' yet.');}
+      }
+    });
+    if(dirty){save();renderIfLive();}
+  }
+};
+function renderIfLive(){if((page==='schedule'||page==='today')&&!document.getElementById('overlay').classList.contains('show')&&!document.hidden){const y=window.scrollY;render();window.scrollTo(0,y);}}
+async function askPerm(){if(!('Notification' in window)){toast('Notifications unsupported here — in-app alerts only.');return;}if(Notification.permission==='default')await Notification.requestPermission();render();}
+function setS(k,v){state.settings[k]=v;save();if(k==='notificationsEnabled'&&v)askPerm();render();ReminderManager.tick();}
+function setQ(k,v){state.settings.quiet[k]=v;save();}
+function setSim(){const v=document.getElementById('simT').value;if(!v)return;const r=new Date();state.settings.simOffset=toMin(v)-minutesSinceMidnight(r);save();ReminderManager.tick();render();}
+function advSim(x){state.settings.simOffset=(state.settings.simOffset||0)+x;save();ReminderManager.tick();render();}
+/* ===== v2: rendering ===== */
+function modal(h){document.getElementById('modalBody').innerHTML=h;document.getElementById('overlay').classList.add('show');}
+function bellBtn(){const u=state.notifications.filter(x=>!x.read).length;return`<button class="iconbtn" style="position:relative" onclick="openNotifs()" aria-label="Notifications">🔔${u?`<span class="badge">${u}</span>`:''}</button>`;}
+function openNotifs(){const L=state.notifications.slice(0,40);modal(`<div class="rowflex"><h2 style="margin:0">Notifications</h2><button class="btn ghost sm" onclick="markRead()">Mark all read</button></div><div style="margin-top:10px">${L.length?L.map(x=>`<div class="item"><div class="itname" style="${x.read?'opacity:.6;font-weight:500':''}">${esc(x.msg)}<div class="meta">${new Date(x.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div></div><button class="delbtn" onclick="dismissNote('${x.id}')">×</button></div>`).join(''):'<div class="meta">Nothing yet.</div>'}</div>`);}
+function markRead(){state.notifications.forEach(x=>x.read=true);save();openNotifs();render();}
+function dismissNote(id){state.notifications=state.notifications.filter(x=>x.id!==id);save();openNotifs();render();}
+function openSnooze(id,dk){modal(`<h2>Snooze</h2><div class="sact">${[15,30,60,120].map(x=>`<button class="btn ghost" onclick="doSnooze('${id}','${dk}',${x})">${x<60?x+' min':x/60+' h'}</button>`).join('')}</div><div class="modalfoot"><button class="btn ghost" onclick="closeModal()">Cancel</button></div>`);}
+function openResched(id,dk){const it=findItem(id),t=slot(it,dk);modal(`<h2>Reschedule (today)</h2><div class="two"><div class="field"><label>Start</label><input type="time" id="rStart" value="${fmtT(t.s)}"></div><div class="field"><label>End</label><input type="time" id="rEnd" value="${fmtT(t.e)}"></div></div><div class="modalfoot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="doResched('${id}','${dk}')">Save</button></div>`);}
+function itemBtns(it,dk,st){
+  if(!TRACKED.includes(it.type)||['completed','skipped','expired'].includes(st))return'';
+  const b=(l,js,p)=>`<button class="btn ${p?'':'ghost'} sm" onclick="${js}">${l}</button>`,a=x=>`schedAct('${it.id}','${dk}','${x}')`,o=occR(it,dk);
+  if(st==='overdue')return b('Complete now',a('complete'),1)+b('Snooze',`openSnooze('${it.id}','${dk}')`)+b('Reschedule',`openResched('${it.id}','${dk}')`)+b('Skip',a('skip'));
+  if(st==='active')return(o.startedAt?'':b('Start',a('start')))+b('Complete',a('complete'),1)+b('Snooze',`openSnooze('${it.id}','${dk}')`)+b('Skip',a('skip'));
+  return b('Complete',a('complete'),1)+b('Reschedule',`openResched('${it.id}','${dk}')`)+b('Skip',a('skip'));
+}
+function schedCard(it,dk,n){
+  const st=getScheduleStatus(it,dk,n),t=slot(it,dk),o=occR(it,dk),m=minutesSinceMidnight(n);
+  const extra=st==='overdue'?` · overdue by ${fmtDur(m-t.e)}`:o.ov?' · rescheduled':'';
+  return`<div class="sitem st-${st}"><div class="rowflex"><div class="itname">${TI[it.type]} ${esc(it.title)}</div><span class="tag t-${st}">${STL[st]}</span></div>
+  <div class="meta">${fmtT(t.s)}–${fmtT(t.e)} · ${it.type} · ${it.priority}${extra}</div>
+  <div class="sact">${itemBtns(it,dk,st)}<button class="delbtn" style="margin-left:auto" aria-label="Delete" onclick="delSched('${it.id}')">×</button></div></div>`;
+}
+function focusHtml(quick){ // NOW → NEXT → OVERDUE
+  const n=now(),dk=localKey(n),m=minutesSinceMidnight(n);
+  const L=itemsFor(dk).map(it=>({it,st:getScheduleStatus(it,dk,n),t:slot(it,dk)})).sort((a,b)=>a.t.s-b.t.s);
+  const act=L.filter(x=>x.st==='active'),nx=L.find(x=>['upcoming','starting-soon','snoozed'].includes(x.st)),od=L.filter(x=>x.st==='overdue');
+  let h='';
+  if(act.length)h+=`<div class="section-title">Right now</div>`+act.map(x=>schedCard(x.it,dk,n)).join('');
+  if(nx)h+=`<div class="section-title">Next up · starts in ${fmtDur(Math.max(nx.t.s-m,0))}${nx.t.s-m<=15?' — prepare now':''}</div>`+schedCard(nx.it,dk,n)+(quick?`<div class="sact" style="margin:-4px 0 14px"><button class="btn ghost sm" onclick="startNext()">▶ Start next</button><button class="btn ghost sm" onclick="snoozeNext()">⏱ Snooze next 15m</button></div>`:'');
+  if(od.length)h+=`<div class="section-title">You're behind schedule</div>`+od.map(x=>schedCard(x.it,dk,n)).join('');
+  return h;
+}
+const schedSummary=()=>state.schedules.length?focusHtml(true):'';
+function schedProgress(){const n=now(),dk=localKey(n);let t=0,d=0;itemsFor(dk).forEach(it=>{if(!TRACKED.includes(it.type)||it.habitId||it.taskId)return;t++;if(getScheduleStatus(it,dk,n)==='completed')d++;});return{t,d};} // linked items are already counted via their habit/task → no double count
+const nowLine=m=>`<div class="nowline" id="nowline">🔴 NOW ${fmtT(m)}</div>`;
+function renderSchedule(){
+  const n=now(),
+        today=localKey(n),
+        dk=schedDate||today,
+        m=minutesSinceMidnight(n);
+
+  // Build the week around the currently selected date
+  const baseDate=new Date(dk+'T00:00:00');
+
+  const mon=new Date(baseDate);
+  mon.setDate(mon.getDate()-((mon.getDay()+6)%7));
+
+  const tabs=[...Array(7)].map((_,i)=>{
+    const d=new Date(mon);
+    d.setDate(mon.getDate()+i);
+
+    const k=localKey(d);
+
+    return `<button
+      class="${k===dk?'on':''}"
+      onclick="schedDate='${k}';schedScrolled=false;render()"
+    >${DAYNAMES[d.getDay()]}<br>${d.getDate()}</button>`;
+  }).join('');
+
+  // Previous and next week
+  const prevWeek=new Date(mon);
+  prevWeek.setDate(prevWeek.getDate()-7);
+
+  const nextWeek=new Date(mon);
+  nextWeek.setDate(nextWeek.getDate()+7);
+
+  const weekNav=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <button
+        class="btn ghost sm"
+        onclick="schedDate='${localKey(prevWeek)}';schedScrolled=false;render()"
+      >
+        ← Previous
+      </button>
+
+      <div class="meta">
+        ${fmtLong(localKey(mon))}
+      </div>
+
+      <button
+        class="btn ghost sm"
+        onclick="schedDate='${localKey(nextWeek)}';schedScrolled=false;render()"
+      >
+        Next →
+      </button>
+    </div>
+  `;
+
+  const L=itemsFor(dk).sort(
+    (a,b)=>slot(a,dk).s-slot(b,dk).s
+  );
+
+  let h=`
+    <div class="topbar">
+      <div>
+        <h1>Schedule</h1>
+        <p class="sub">${fmtLong(dk)}</p>
+      </div>
+
+      <div style="display:flex;gap:8px">
+        ${bellBtn()}
+        <button class="btn" onclick="openModal('schedule')">+ Add</button>
+      </div>
+    </div>
+
+    ${weekNav}
+
+    <div class="tabs">${tabs}</div>
+  `;
+
+  if(dk===today)h+=focusHtml(false);
+
+  if(!L.length){
+    return h+`
+      <div class="card empty">
+        <p>Nothing scheduled for this day.</p>
+        <button class="btn" onclick="openModal('schedule')">
+          Add to schedule
+        </button>
+      </div>
+    `;
+  }
+
+  let rows='',
+      placed=dk!==today;
+
+  L.forEach(it=>{
+    const t=slot(it,dk);
+
+    if(!placed&&t.s>m){
+      rows+=nowLine(m);
+      placed=true;
+    }
+
+    rows+=`
+      <div class="trow">
+        <div class="ttime">${fmtT(t.s)}</div>
+        <div>${schedCard(it,dk,n)}</div>
+      </div>
+    `;
+  });
+
+  if(!placed)rows+=nowLine(m);
+
+  return h+`
+    <div class="section-title">Timeline</div>
+    ${rows}
+  `;
+}
+function afterRender(){if(page==='schedule'&&!schedScrolled){schedScrolled=true;const e=document.getElementById('nowline');if(e)e.scrollIntoView({block:'center'});}}
+function conflictWith(it){for(let i=0;i<7;i++){const d=new Date(it.date+'T00:00:00');d.setDate(d.getDate()+i);const dk=localKey(d);if(!occurs(it,dk)||it.type==='break')continue;const a=slot(it,dk);for(const o of itemsFor(dk)){if(o.type==='break')continue;const b=slot(o,dk),ov=Math.min(a.e,b.e)-Math.max(a.s,b.s);if(ov>0)return{it:o,min:ov};}}return null;}
+function durHint(){const a=document.getElementById('sStart').value,b=document.getElementById('sEnd').value,e=document.getElementById('sDur');e.textContent=a&&b&&toMin(b)>toMin(a)?'Duration: '+fmtDur(toMin(b)-toMin(a)):'End must be after start';}
+function schedForm(){
+  const op=(a,sel)=>a.map(x=>`<option value="${x[0]}" ${x[0]===sel?'selected':''}>${x[1]}</option>`).join('');
+  return`<h2>Add to schedule</h2>
+  <div class="field"><label>Title</label><input id="sTitle" placeholder="e.g. Study Java"></div>
+  <div class="two"><div class="field"><label>Type</label><select id="sType">${op([['task','Task'],['habit','Habit'],['routine','Routine'],['event','Event / block'],['break','Break']],'task')}</select></div>
+  <div class="field"><label>Priority</label><select id="sPri">${op([['P1','P1 Critical'],['P2','P2 Important'],['P3','P3 Normal'],['P4','P4 Optional']],'P3')}</select></div></div>
+  <div class="field"><label>Link to existing habit/task (shares one record)</label><select id="sLink"><option value="">— none —</option>${state.habits.map(h=>`<option value="h:${h.id}">Habit · ${esc(h.name)}</option>`).join('')}${state.tasks.filter(t=>!t.completed).map(t=>`<option value="t:${t.id}">Task · ${esc(t.title)}</option>`).join('')}</select></div>
+  <div class="two"><div class="field"><label>Date</label><input id="sDate" type="date" value="${schedDate||todayKey()}"></div>
+  <div class="field"><label>Repeat</label><select id="sRep" onchange="document.getElementById('sDays').style.display=this.value==='custom'?'flex':'none'">${op([['once','Once'],['daily','Every day'],['weekdays','Weekdays'],['weekends','Weekends'],['custom','Custom days']],'once')}</select></div></div>
+  <div class="chk" id="sDays" style="display:none;flex-wrap:wrap;gap:10px">${DAYNAMES.map((d,i)=>`<label style="display:flex;gap:4px;align-items:center"><input type="checkbox" value="${i}">${d}</label>`).join('')}</div>
+  <div class="two"><div class="field"><label>Start</label><input id="sStart" type="time" value="20:00" oninput="durHint()"></div><div class="field"><label>End</label><input id="sEnd" type="time" value="21:00" oninput="durHint()"></div></div>
+  <div class="meta" id="sDur" style="margin:-6px 0 14px"></div>
+  <label class="chk"><input type="checkbox" id="sNotify" checked> Notify me</label>
+  <div class="field"><label>Remind me before start</label><select id="sBefore">${op([['0','At start'],['5','5 min before'],['10','10 min before'],['15','15 min before'],['30','30 min before']],'0')}</select></div>
+  <label class="chk"><input type="checkbox" id="sMon"> Keep reminding me if unfinished</label>
+  <div class="two"><div class="field"><label>Every</label><select id="sInt">${op([['30','30 min'],['60','1 hour'],['120','2 hours'],['180','3 hours']],'60')}</select></div>
+  <div class="field"><label>Max reminders</label><select id="sMax">${op([['1','1'],['2','2'],['3','3'],['5','5'],['0','Until end of day']],'3')}</select></div></div>
+  <div class="modalfoot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="submitSched()">Add</button></div>`;
+}
+async function submitSched(){
+  const v = id => document.getElementById(id).value;
+  const title = v('sTitle').trim();
+
+  if(!title) return;
+
+  const start = v('sStart');
+  const end = v('sEnd');
+
+  if(!start || !end || toMin(end) <= toMin(start)){
+    toast('End time must be after start time');
+    return;
+  }
+
+  const link = v('sLink');
+  const rep = v('sRep');
+
+  const it = {
+    id: uid(),
+    title,
+    type: v('sType'),
+    date: v('sDate') || todayKey(),
+    start,
+    end,
+    repeat: rep,
+    days: [...document.querySelectorAll('#sDays input:checked')]
+      .map(x => +x.value),
+    priority: v('sPri'),
+    notify: document.getElementById('sNotify').checked,
+    remindBefore: +v('sBefore'),
+    monitor: document.getElementById('sMon').checked,
+    interval: +v('sInt'),
+    maxRem: +v('sMax'),
+    log: {},
+    createdAt: new Date().toISOString()
+  };
+
+  if(rep === 'custom' && !it.days.length){
+    toast('Pick at least one day');
+    return;
+  }
+
+  if(link.startsWith('h:')){
+    it.habitId = link.slice(2);
+  }
+
+  if(link.startsWith('t:')){
+    it.taskId = link.slice(2);
+  }
+
+  const cf = conflictWith(it);
+
+  if(
+    cf &&
+    !confirm(
+      '⚠ Schedule conflict\n"' +
+      title +
+      '" overlaps "' +
+      cf.it.title +
+      '" by ' +
+      cf.min +
+      ' minutes.\n\n' +
+      'OK = keep both · Cancel = go back and change the time'
+    )
+  ){
+    return;
+  }
+
+  // Show immediately in the app
+  state.schedules.push(it);
+
+  if(it.repeat === 'once'){
+    schedDate = it.date;
+  }
+
+  save();
+  closeModal();
+  render();
+
+  // Save to Supabase
+  const synced = await saveScheduleToCloud(it);
+
+  if(synced){
+    // Save again because Supabase gives the schedule its permanent ID
+    save();
+
+    console.log("✅ Schedule synced to Supabase");
+  }else{
+    console.error("❌ Schedule was not synced to Supabase");
+  }
+}
+
+function notifSettings(){
+  const S=state.settings,p='Notification' in window?Notification.permission:'unsupported';
+  const tg=(k,l)=>`<label class="chk"><input type="checkbox" ${S[k]?'checked':''} onchange="setS('${k}',this.checked)"> ${l}</label>`;
+  const sel=(k,o)=>`<select onchange="setS('${k}',this.value)">${o.map(x=>`<option value="${x[0]}" ${S[k]===x[0]?'selected':''}>${x[1]}</option>`).join('')}</select>`;
+  return`<div class="card"><h2>Notifications &amp; reminders</h2>${tg('notificationsEnabled','Enable reminders')}
+  <p class="meta" style="margin:-6px 0 12px">${p==='granted'?'Browser notifications are allowed.':p==='denied'?"Browser notifications are blocked — you'll still get in-app alerts while the app is open.":p==='unsupported'?"This browser doesn't support notifications — in-app alerts only.":'Browser permission not granted yet.'}</p>
+  <div class="field"><label>Reminder style</label>${sel('mode',[['gentle','Gentle — one notification'],['normal','Normal — start + one follow-up'],['persistent','Persistent — repeat until done or max'],['alarm','Alarm — full-screen alert + sound']])}</div>
+  <div class="field"><label>Alarm sound (only while app is open)</label>${sel('sound',[['off','Off'],['default','Default'],['soft','Soft'],['strong','Strong']])}</div>
+  ${tg('taskRem','Task reminders')}${tg('habitRem','Habit reminders')}${tg('routineRem','Routine reminders')}${tg('overdueRem','Overdue follow-ups')}
+  <label class="chk"><input type="checkbox" ${S.quiet.enabled?'checked':''} onchange="setQ('enabled',this.checked)"> Quiet hours (P1 items still notify)</label>
+  <div class="two"><div class="field"><label>From</label><input type="time" value="${S.quiet.start}" onchange="setQ('start',this.value)"></div><div class="field"><label>To</label><input type="time" value="${S.quiet.end}" onchange="setQ('end',this.value)"></div></div>
+  <p class="meta"><b>Browser limitation:</b> a web app can't guarantee alarms while the browser/app is fully closed. Reminders fire while Habit Flow is open or alive in the background (most reliable when installed as an app). On reopening, it recalculates what you missed from stored times and sends at most one catch-up reminder.</p></div>
+  <div class="card"><h2>Developer · simulated time</h2><p class="meta" style="margin-bottom:10px">Clock now: ${fmtT(minutesSinceMidnight(now()))} ${S.simOffset?'(simulated — also shifts "today")':'(real)'}</p>
+  <div class="two"><div class="field"><label>Jump to</label><input type="time" id="simT"></div><div class="field"><label>&nbsp;</label><button class="btn ghost" onclick="setSim()">Apply</button></div></div>
+  <div class="sact"><button class="btn ghost sm" onclick="advSim(30)">+30 min</button><button class="btn ghost sm" onclick="advSim(60)">+1 h</button><button class="btn ghost sm" onclick="setS('simOffset',0)">Real time</button></div></div>`;
+}
+function schedStats(){
+  if(!state.schedules.length)return'';
+  const n=now();let pl=0,ok=0,late=0,sk=0,ms=0,sn=0,rs=0,ds=0;
+  for(let i=0;i<7;i++){const dk=keyOffset(i-6);itemsFor(dk).forEach(it=>{
+    if(!TRACKED.includes(it.type))return;const st=getScheduleStatus(it,dk,n),o=occR(it,dk);
+    if(['upcoming','starting-soon','active','snoozed','overdue'].includes(st))return; // still actionable → not judged yet
+    pl++;sn+=o.snoozes||0;rs+=o.reschedules||0;
+    if(st==='completed'){if((o.delay||0)>5){late++;ds+=o.delay;}else ok++;}else if(st==='skipped')sk++;else ms++;
+  });}
+  const lg=state.reminderLogs,fw=lg.length?Math.round(lg.filter(l=>l.action==='complete').length/lg.length*100):null,r=(a,b)=>`<div class="item"><div class="itname">${a}</div><div class="meta">${b}</div></div>`;
+  return`<div class="card"><h2>Schedule (last 7 days)</h2>${pl?r('Completion rate',Math.round((ok+late)/pl*100)+'% of '+pl)+r('On time',ok)+r('Delayed',late+(late?' · avg '+fmtDur(Math.round(ds/late)):''))+r('Skipped',sk)+r('Missed',ms)+r('Snoozes / reschedules',sn+' / '+rs)+r('Follow-through after reminder',fw===null?'—':fw+'%'):'<div class="meta">Finished scheduled items will show up here.</div>'}</div>`;
+}
+document.getElementById('main').insertAdjacentHTML('afterend','<div class="toast" id="toast" role="status" aria-live="polite"></div>');
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register('sw.js').then(r=>{swReg=r;}).catch(()=>{});
+ReminderManager.start();
+setInterval(renderIfLive,30000); // keeps NOW line / statuses live without refresh
+
+render();
+</script>
+
+<script src="auth.js"></script>
+<script src="cloud-sync.js"></script>
+
+</body>
+</html>
