@@ -328,6 +328,7 @@ applyTheme();
 function applyTheme(){document.documentElement.setAttribute('data-theme',state.theme==='system'?'':state.theme);}
 
 let page='today';
+let habitView = 'today';
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const todayKey=()=>localKey(now());
 function keyOffset(n){const d=now();d.setDate(d.getDate()+n);return localKey(d);}
@@ -481,15 +482,153 @@ function renderToday(){
 function setMood(m){state.moods[todayKey()]=m;save();render();}
 
 function renderHabits(){
-  let html=`<div class="topbar"><div><h1>Habits</h1><p class="sub">${state.habits.length} active</p></div><button class="btn" onclick="openModal('habit')">+ Add</button></div>`;
-  if(!state.habits.length){html+=`<div class="card empty"><p>No habits yet. Build your first one and start creating consistency.</p><button class="btn" onclick="openModal('habit')">Add habit</button></div>`;return html;}
-  const byCat={}; state.habits.forEach(h=>{(byCat[h.category]=byCat[h.category]||[]).push(h);});
-  Object.keys(byCat).forEach(cat=>{
-    html+=`<div class="section-title">${cat}</div><div class="card">`+byCat[cat].map(h=>`
-      <div class="item"><div class="check ${h.completions[todayKey()]==='done'?'done':''}" onclick="toggleHabit('${h.id}')">${h.completions[todayKey()]==='done'?'✓':''}</div>
-      <div style="flex:1"><div class="itname">${esc(h.name)}</div><div class="meta">🔥 ${streakFor(h)} current · ${h.longest||0} best · ${rate30(h)}% last 30d</div></div>
-      <button class="delbtn" onclick="delHabit('${h.id}')">×</button></div>`).join('')+`</div>`;
-  });
+  alert("NEW HABITS FUNCTION IS RUNNING");
+  const total = state.habits.length;
+  const today = todayKey();
+  const done = state.habits.filter(h => h.completions[today] === 'done').length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+
+  let html = `
+    <div class="topbar">
+      <div>
+        <h1>Habits</h1>
+        <p class="sub">${total} active</p>
+      </div>
+      <button class="btn" onclick="openModal('habit')">+ Add</button>
+    </div>
+
+    <div class="tabs" style="margin-bottom:18px">
+      <button class="on" onclick="habitView='today';render()">Today</button>
+      <button onclick="habitView='history';render()">History</button>
+    </div>
+  `;
+
+  if(typeof habitView === 'undefined') habitView = 'today';
+
+  if(habitView === 'today'){
+
+    html = html.replace(
+      `<button class="on" onclick="habitView='today';render()">Today</button>
+      <button onclick="habitView='history';render()">History</button>`,
+      `<button class="on" onclick="habitView='today';render()">Today</button>
+      <button onclick="habitView='history';render()">History</button>`
+    );
+
+    html += `
+      <div class="card" style="text-align:center;padding:28px 20px">
+
+        <div style="
+          width:150px;
+          height:150px;
+          border-radius:50%;
+          margin:0 auto 18px;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          background:conic-gradient(
+            var(--accent) ${pct * 3.6}deg,
+            var(--border) 0deg
+          );
+          position:relative;
+        ">
+          <div style="
+            width:118px;
+            height:118px;
+            border-radius:50%;
+            background:var(--card);
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:center;
+          ">
+            <div style="font-size:32px;font-weight:800">${pct}%</div>
+            <div class="meta">${done} of ${total}</div>
+          </div>
+        </div>
+
+        <div class="hero-label">Today's habits</div>
+      </div>
+    `;
+
+    if(!state.habits.length){
+
+      html += `
+        <div class="card empty">
+          <p>No habits yet. Build your first one and start creating consistency.</p>
+          <button class="btn" onclick="openModal('habit')">Add habit</button>
+        </div>
+      `;
+
+      return html;
+    }
+
+    const byCat = {};
+
+    state.habits.forEach(h => {
+      (byCat[h.category] = byCat[h.category] || []).push(h);
+    });
+
+    Object.keys(byCat).forEach(cat => {
+
+      html += `
+        <div class="section-title">${cat}</div>
+        <div class="card">
+      `;
+
+      html += byCat[cat].map(h => {
+
+        const st = h.completions[today];
+
+        return `
+          <div class="item">
+
+            <div
+              class="check ${st === 'done' ? 'done' : ''}"
+              onclick="toggleHabit('${h.id}')"
+            >
+              ${st === 'done' ? '✓' : ''}
+            </div>
+
+            <div style="flex:1">
+              <div class="itname">${esc(h.name)}</div>
+
+              <div class="meta">
+                🔥 ${streakFor(h)} current ·
+                ${h.longest || 0} best ·
+                ${rate30(h)}% last 30d
+              </div>
+            </div>
+
+            <button
+              class="delbtn"
+              onclick="delHabit('${h.id}')"
+            >×</button>
+
+          </div>
+        `;
+
+      }).join('');
+
+      html += `</div>`;
+    });
+
+  } else {
+
+    /*
+      HISTORY VIEW
+      Calendar will be added in the next step.
+    */
+
+    html += `
+      <div class="card empty">
+        <h2 style="margin-bottom:8px">Habit History</h2>
+        <p>
+          Your calendar history will appear here.
+        </p>
+      </div>
+    `;
+  }
+
   return html;
 }
 
