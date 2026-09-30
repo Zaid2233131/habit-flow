@@ -34,10 +34,28 @@ async function setCompletion(id,k,next){
 }
 const toggleHabit=id=>{const h=state.habits.find(x=>x.id===id);if(h)return setCompletion(id,todayKey(),h.completions[todayKey()]==='done'?undefined:'done');};
 const histToggle=(id,k)=>{const h=state.habits.find(x=>x.id===id);if(h)setCompletion(id,k,cellState(h,k)==='done'?undefined:'done');};
-async function delHabit(id){
-  const h=state.habits.find(x=>x.id===id);if(!h||!confirm('Delete "'+h.name+'" and its history?'))return;
-  if(!await deleteHabitFromCloud(id)){toast('Could not delete — check your connection');return;}
-  state.habits=state.habits.filter(x=>x.id!==id);save();habitView='today';render();
+/* ---- DELETE HABIT: confirm modal -> optimistic local removal -> cloud delete (rolled back if it fails) ---- */
+function askDelHabit(id){
+  const h=state.habits.find(x=>x.id===id);if(!h)return;
+  modal(`<h2>Delete "${esc(h.name)}"?</h2><p class="meta" style="margin:0 0 16px;font-size:14px">This will permanently remove this habit and its historical completion data.</p>
+  <div class="modalfoot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn danger" onclick="confirmDelHabit('${id}')">Delete</button></div>`);
+}
+async function confirmDelHabit(id){
+  closeModal();
+  const idx=state.habits.findIndex(x=>x.id===id);if(idx<0)return;
+  const habit=state.habits[idx],unlinked=state.schedules.filter(s=>s.habitId===id);
+  // Local removal first so the UI updates immediately; schedules stay, only the dead link is cleared.
+  state.habits.splice(idx,1);unlinked.forEach(s=>{s.habitId=null;});
+  if(detailId===id){detailId=null;habitView='today';}
+  if(histHabit===id)histHabit=null;
+  if(habitFilter!=='All'&&!state.habits.some(x=>x.category===habitFilter))habitFilter='All';
+  save();render();
+  if(await deleteHabitFromCloud(id)){toast('Habit deleted');return;}
+  // Cloud refused: never pretend it worked. Restore the habit locally, then re-sync from the cloud
+  // (covers the case where part of the delete went through before the failure).
+  state.habits.splice(Math.min(idx,state.habits.length),0,habit);unlinked.forEach(s=>{s.habitId=id;});
+  save();render();toast('Could not delete habit — it was kept. Check your connection and try again.',4500);
+  if(typeof loadAllFromCloud==='function')loadAllFromCloud();
 }
 const openHabit=id=>{detailId=id;habitView='detail';histMonth=null;render();window.scrollTo(0,0);};
 const setHabitView=v=>{habitView=v;histMonth=null;render();};
@@ -48,9 +66,9 @@ function curMonth(){if(!histMonth){const n=now();histMonth={y:n.getFullYear(),m:
 const pageTop=(t,sub,right)=>`<div class="topbar"><div><h1>${t}</h1><p class="sub">${sub||''}</p></div><div class="topright">${right||''}</div></div>`;
 function ring(p,size,sub){const r=size/2-9,c=2*Math.PI*r;
   return `<div class="ring" style="width:${size}px;height:${size}px" role="img" aria-label="${p}% ${sub}"><svg viewBox="0 0 ${size} ${size}"><circle class="rg-bg" cx="${size/2}" cy="${size/2}" r="${r}"/><circle class="rg-fg" cx="${size/2}" cy="${size/2}" r="${r}" stroke-dasharray="${c}" stroke-dashoffset="${c*(1-p/100)}" transform="rotate(-90 ${size/2} ${size/2})"/></svg><div class="ring-c"><b>${p}%</b><span>${sub}</span></div></div>`;}
-function habitRow(h){const st=h.completions[todayKey()],nm=esc(h.name);
+function habitRow(h,canDelete){const st=h.completions[todayKey()],nm=esc(h.name);
   return `<div class="hrow"><button class="hcheck ${st||''}" aria-pressed="${st==='done'}" aria-label="${st==='done'?'Mark '+nm+' not done':'Mark '+nm+' done'}" onclick="toggleHabit('${h.id}')">${SYM[st]||''}</button>
-  <button class="hmain" onclick="openHabit('${h.id}')"><span class="hicon">${esc(icon(h))}</span><span class="hname ${st==='done'?'strike':''}">${nm}<small>${esc(h.category)}</small></span><span class="flame">🔥 ${streakFor(h)}</span></button></div>`;}
+  <button class="hmain" onclick="openHabit('${h.id}')"><span class="hicon">${esc(icon(h))}</span><span class="hname ${st==='done'?'strike':''}">${nm}<small>${esc(h.category)}</small></span><span class="flame">🔥 ${streakFor(h)}</span></button>${canDelete?`<button class="rowdel" aria-label="Delete ${nm}" title="Delete habit" onclick="askDelHabit('${h.id}')">🗑</button>`:''}</div>`;}
 const bars=rows=>rows.map(r=>`<div class="prow"><span class="pl">${r.l}</span><div class="ptrack"><i style="width:${r.p}%"></i></div><b>${r.p}%</b></div>`).join('');
 const stat=(v,l)=>`<div class="stat"><b>${v}</b><span>${l}</span></div>`;
 const empty=(msg,btn)=>`<div class="card empty"><p>${msg}</p>${btn||''}</div>`;
@@ -81,7 +99,7 @@ function renderHabits(){
   if(habitFilter!=='All'&&!cats.includes(habitFilter))habitFilter='All';
   const L=filtered();
   if(habitView==='today'){const d=L.filter(h=>h.completions[todayKey()]==='done').length,p=L.length?Math.round(d/L.length*100):0;
-    return html+`<div class="card hero">${ring(p,150,'done')}<div class="hero-t"><b>${d} / ${L.length}</b> habits done</div></div><div class="card list">${L.map(habitRow).join('')}</div>`;}
+    return html+`<div class="card hero">${ring(p,150,'done')}<div class="hero-t"><b>${d} / ${L.length}</b> habits done</div></div><div class="card list">${L.map(h=>habitRow(h,true)).join('')}</div>`;}
   return html+renderHistory(L);
 }
 function renderHistory(L){
@@ -102,7 +120,7 @@ function renderHabitDetail(){
   const h=state.habits.find(x=>x.id===detailId);if(!h){habitView='today';return renderHabits();}
   const st=h.completions[todayKey()],r=statsFor(h,lastKeys(30)),{y,m}=curMonth();
   const recent=lastKeys(7).reverse().filter(k=>cellState(h,k)!=='na');
-  return `<button class="link back" onclick="setHabitView('today')">← Habits</button>`+pageTop(esc(icon(h))+' '+esc(h.name),esc(h.category)+' · 🔥 '+streakFor(h)+' day streak',`<button class="btn ghost sm" onclick="delHabit('${h.id}')">Delete</button>`)
+  return `<button class="link back" onclick="setHabitView('today')">← Habits</button>`+pageTop(esc(icon(h))+' '+esc(h.name),esc(h.category)+' · 🔥 '+streakFor(h)+' day streak',`<button class="btn ghost sm" onclick="askDelHabit('${h.id}')">Delete</button>`)
   +`<div class="card"><button class="bigcheck ${st||''}" onclick="toggleHabit('${h.id}')" aria-pressed="${st==='done'}">${st==='done'?'✓ Completed today':st==='skip'?'– Skipped today':'○ Mark today done'}</button></div>
   <div class="stats">${stat(r.p+'%','Completion (30 days)')}${stat(streakFor(h),'Current streak')}${stat(bestStreak(h),'Best streak')}${stat(totalDone(h),'Total completed')}</div>
   <div class="cols"><div><div class="section-title">Recent activity</div><div class="card list">${recent.map(k=>`<div class="srow"><span class="stime">${shortDate(k)}</span><span class="hname">${SYM[cellState(h,k)]||'○'} ${SLBL[cellState(h,k)]}</span></div>`).join('')}</div></div>

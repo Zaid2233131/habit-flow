@@ -85,11 +85,36 @@ async function saveHabitToCloud(habit) {
 }
 
 
-// Delete habit from Supabase
+// Delete habit from Supabase.
+// Order matters: (1) detach schedules that point at the habit (schedules are kept),
+// (2) delete the habit's completion records explicitly, (3) delete the habit itself.
+// Every query is scoped to the signed-in user. Returns false on the first failure.
 async function deleteHabitFromCloud(habitId) {
   const user = await getCurrentUser();
 
   if (!user) return false;
+
+  const unlink = await supabaseClient
+    .from("schedule_items")
+    .update({ linked_habit_id: null })
+    .eq("linked_habit_id", habitId)
+    .eq("user_id", user.id);
+
+  if (unlink.error) {
+    console.error("Could not unlink schedules from habit:", unlink.error);
+    return false;
+  }
+
+  const comps = await supabaseClient
+    .from("habit_completions")
+    .delete()
+    .eq("habit_id", habitId)
+    .eq("user_id", user.id);
+
+  if (comps.error) {
+    console.error("Could not delete habit completions:", comps.error);
+    return false;
+  }
 
   const { error } = await supabaseClient
     .from("habits")

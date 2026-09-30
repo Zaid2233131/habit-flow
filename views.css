@@ -39,3 +39,9 @@
 .trend{width:100%;height:auto}.trend line{stroke:var(--border)}.trend text{fill:var(--dim);font-size:10px}.trend .tl{fill:none;stroke:var(--accent);stroke-width:2.5;stroke-linejoin:round}.trend circle{fill:var(--accent)}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* Delete habit: subtle row control + destructive confirm button */
+.rowdel{background:none;border:none;font-size:15px;opacity:.35;cursor:pointer;padding:10px;border-radius:8px;flex-shrink:0;filter:grayscale(1)}
+.rowdel:hover,.rowdel:focus-visible{opacity:1;background:var(--bg)}
+@media(hover:none){.rowdel{opacity:.55}}
+.btn.danger{background:var(--danger)}
