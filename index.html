@@ -262,6 +262,10 @@ h1{font-size:22px;margin:0 0 2px;letter-spacing:-.01em;}
 @media(min-width:840px){.toast{bottom:30px}}
 
 #hfIntro{position:fixed;inset:0;z-index:1000000;display:flex;align-items:center;justify-content:center;background:#080b0a;color:#fff;opacity:1;visibility:visible;transition:opacity .55s ease,visibility .55s ease}#hfIntro.hfIntroHide{opacity:0;visibility:hidden;pointer-events:none}.hfIntroCard{text-align:center;animation:hfIntroIn .8s ease both}.hfIntroCard img{width:96px;height:96px;border-radius:24px;display:block;margin:0 auto 20px;box-shadow:0 14px 50px rgba(0,0,0,.35)}.hfIntroTitle{font-size:30px;font-weight:800;letter-spacing:-.03em}.hfIntroDev{margin-top:7px;color:#8f9b97;font-size:13px;letter-spacing:.03em}@keyframes hfIntroIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}.day-picks{display:grid;grid-template-columns:repeat(7,1fr);gap:7px}.day-pick{position:relative}.day-pick input{position:absolute;opacity:0;pointer-events:none}.day-pick span{display:flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--dim);font-size:12px;font-weight:700;cursor:pointer}.day-pick input:checked+span{background:var(--accent);border-color:var(--accent);color:#fff}.weekly-card{margin-bottom:18px}.weekly-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(150px,1.5fr) 48px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}.weekly-row:last-child{border-bottom:0}.weekly-name{display:flex;gap:9px;align-items:center;min-width:0}.weekly-name>span{width:22px;text-align:center}.weekly-name b,.weekly-name small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.weekly-name small{color:var(--dim);font-size:10px;margin-top:2px}.weekly-row>strong{text-align:right;font-size:12px}.analysis-name small{display:block;color:var(--dim);font-size:9px;margin-top:2px}@media(max-width:700px){.day-picks{grid-template-columns:repeat(4,1fr)}.weekly-row{grid-template-columns:1fr 1.1fr 40px}}
+
+.howto-card{width:100%;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:13px;text-align:left;margin:0 0 18px;padding:15px 16px;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--text);cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.04);transition:transform .16s ease,border-color .16s ease,background .16s ease}.howto-card:hover{transform:translateY(-1px);border-color:var(--accent);background:var(--accent-soft)}.howto-icon{width:42px;height:42px;display:grid;place-items:center;border-radius:12px;background:var(--accent-soft);font-size:21px}.howto-copy b{display:block;font-size:14px;margin-bottom:3px}.howto-copy small{display:block;color:var(--dim);font-size:12px;line-height:1.45;font-weight:500}.howto-arrow{font-size:20px;color:var(--accent);font-weight:800}.modal.howto-shell{max-width:760px;overflow:hidden;display:flex;flex-direction:column}.modal.howto-shell>.howto-modal{width:100%;max-width:none;min-height:0;flex:1 1 auto;display:flex;flex-direction:column}.modal.howto-shell .guide-content{min-height:0;flex:1 1 auto;max-height:none;overflow-y:auto;overflow-x:hidden;padding-right:5px;overscroll-behavior:contain}.guide-section{padding:19px 0;border-bottom:1px solid var(--border)}.guide-section:last-child{border-bottom:0}.guide-heading{display:flex;gap:12px;align-items:flex-start;margin-bottom:10px}.guide-heading>span{font-size:24px;line-height:1.1}.guide-heading h3{margin:1px 0 0;font-size:18px}.guide-section p,.guide-section li{color:var(--dim);font-size:13.5px;line-height:1.65}.guide-section p{margin:8px 0}.guide-section ol,.guide-section ul{margin:8px 0 8px 20px;padding:0}.guide-example,.guide-quote{padding:12px 14px;border-radius:11px;background:var(--accent-soft);border:1px solid var(--border);font-size:13px;line-height:1.7;margin:10px 0}.guide-quote{font-weight:700;color:var(--text);font-style:italic}.guide-list,.guide-routine,.guide-rules,.guide-restart{display:grid;grid-template-columns:150px 1fr;gap:8px 12px;margin:10px 0}.guide-list span,.guide-routine b,.guide-rules b,.guide-restart b{font-size:13px}.guide-list small,.guide-routine span,.guide-rules span,.guide-restart span{color:var(--dim);font-size:13px;line-height:1.5}.guide-status{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0}.guide-status span{padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-size:13px}.guide-status b{font-size:17px;margin-right:6px}.guide-flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0;font-size:12px}.guide-flow b{padding:8px 10px;border-radius:9px;background:var(--surface);border:1px solid var(--border)}.guide-quick{display:flex;flex-wrap:wrap;gap:7px;margin:0 0 4px;padding:12px;border-radius:12px;background:var(--accent-soft);border:1px solid var(--border)}.guide-quick b{width:100%;font-size:13px;margin-bottom:2px}.guide-quick span{font-size:11px;font-weight:700;padding:6px 8px;border-radius:8px;background:var(--surface);border:1px solid var(--border)}.guide-final{text-align:center;padding:8px 4px 4px}.guide-final strong{display:block;line-height:1.8;font-size:15px;margin:14px 0}.guide-final p:last-child{font-weight:800;color:var(--accent)}
+@media(max-width:600px){.howto-card{grid-template-columns:auto 1fr auto;padding:13px}.howto-copy small{font-size:11px}.guide-content{max-height:64vh}.guide-list,.guide-routine,.guide-rules,.guide-restart{grid-template-columns:1fr;gap:3px 0;margin-bottom:14px}.guide-list small,.guide-routine span,.guide-rules span,.guide-restart span{margin-bottom:7px}.guide-status{grid-template-columns:1fr}.guide-flow{gap:5px}.guide-flow span{display:none}.guide-quick span{flex:1 1 calc(50% - 7px);text-align:center}}
+
 </style>
 <link rel="stylesheet" href="views.css">
 </head>
@@ -491,7 +495,7 @@ function fillForm(){
     <div class="modalfoot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="submitTask()">Add task</button></div>`;
   }
 }
-function closeModal(){document.getElementById('overlay').classList.remove('show');}
+function closeModal(){document.getElementById('overlay').classList.remove('show');document.getElementById('modalBody').classList.remove('howto-shell');}
 function renderHabitFrequencyOptions(){
   const type=document.getElementById('hFreqType')?.value;
   const box=document.getElementById('hFreqOptions');if(!box)return;
@@ -907,67 +911,46 @@ const ReminderManager={
   }
 };
 function renderIfLive(){if((page==='schedule'||page==='today')&&!document.getElementById('overlay').classList.contains('show')&&!document.hidden){const y=window.scrollY;render();window.scrollTo(0,y);}}
-/* ===== Random uncompleted-habit reminders =====
-   Generates a small daily set of randomized reminder times. Each due slot picks
-   one habit that is still incomplete today, so completed/skipped habits leave the pool.
-   This is intentionally client-side: browser push can wake the app only when backed by
-   a server scheduler. While Habit Flow is open/alive, these reminders run automatically. */
+/* ===== Random general habit reminders =====
+   Client-side fallback only. The server-side scheduler is preferred because it
+   can deliver Web Push even when the app is closed. Reminders are generic and
+   never name a specific habit. Every gap is at least 30 minutes. */
 const HabitReminderManager={
   timer:null,
   start(){if(state.settings.serverHabitRemindersReady)return;if(this.timer)return;this.ensurePlan();this.tick();this.timer=setInterval(()=>this.tick(),30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)this.tick();});},
   enabled(){const S=state.settings;return !!(S.notificationsEnabled&&S.uncompletedHabitReminders);},
   inQuiet(n){const q=state.settings.quiet;if(!q||!q.enabled)return false;const m=minutesSinceMidnight(n),a=toMin(q.start),b=toMin(q.end);return a>b?(m>=a||m<b):(m>=a&&m<b);},
-  eligible(){const k=todayKey();return state.habits.filter(h=>habitDueOnDate(h,k)&&h.completions[k]!=='done'&&h.completions[k]!=='skip');},
+  hasIncomplete(){const k=todayKey();return state.habits.some(h=>habitDueOnDate(h,k)&&h.completions[k]!=='done'&&h.completions[k]!=='skip');},
   randomSlots(dateKey){
     const S=state.settings,n=Math.max(1,Math.min(10,Number(S.habitReminderMax)||6));
     let start=toMin(S.habitReminderStart||'09:00'),end=toMin(S.habitReminderEnd||'22:00');
     if(end<=start)end=23*60;
     const span=end-start;if(span<30)return[];
-    const count=Math.min(n,Math.max(1,Math.floor(span/60)));
-    const minGap=Math.max(45,Math.floor(span/(count+1)));
-    const slots=[];
-    for(let i=0;i<count;i++){
-      const lo=start+i*minGap+10,hi=Math.min(end-10,start+(i+1)*minGap-10);
-      const m=hi>lo?lo+Math.floor(Math.random()*(hi-lo+1)):Math.min(end-1,lo);
-      slots.push(new Date(dateKey+'T00:00:00').getTime()+m*60000);
-    }
-    return slots.sort((a,b)=>a-b);
+    const slots=[];let m=start+Math.floor(Math.random()*Math.min(30,Math.max(1,span-29)));
+    while(m<end&&slots.length<n){slots.push(new Date(dateKey+'T00:00:00').getTime()+m*60000);m+=30+Math.floor(Math.random()*91);}
+    return slots;
   },
   ensurePlan(){
     const S=state.settings,k=todayKey(),p=S.habitReminderPlan||{};
     if(p.date===k&&Array.isArray(p.slots)&&Array.isArray(p.sent))return;
-    S.habitReminderPlan={date:k,slots:this.randomSlots(k),sent:[],lastHabitId:null};
-    // Keep the generated plan deterministic for the rest of the day.
-    save();
+    S.habitReminderPlan={date:k,slots:this.randomSlots(k),sent:[],lastHabitId:null};save();
   },
-  chooseHabit(list){
-    const last=state.settings.habitReminderPlan.lastHabitId;
-    const pool=list.length>1?list.filter(h=>h.id!==last):list;
-    return (pool.length?pool:list)[Math.floor(Math.random()*(pool.length?pool:list).length)];
-  },
-  fire(h){
-    const msg='You haven\'t completed “'+h.name+'” yet. Take a moment to do it now.';
+  fire(){
+    const msg="Don't forget to complete your habits.";
     pushNote(msg,'habit-followup');
-    browserNotify(msg,'habit-'+h.id+'-'+todayKey());
-    toast('Habit reminder: '+h.name,6000);
-    state.settings.habitReminderPlan.lastHabitId=h.id;
+    browserNotify(msg,'habit-flow-general-'+todayKey());
+    toast(msg,6000);
   },
   tick(){
     if(!this.enabled())return;
     this.ensurePlan();
     const n=now(),nm=n.getTime(),p=state.settings.habitReminderPlan;
-    if(this.inQuiet(n))return;
-    const list=this.eligible();
-    if(!list.length)return;
-    const due=[];
-    p.slots.forEach((ts,i)=>{if(ts<=nm&&!p.sent.includes(i))due.push(i);});
+    if(this.inQuiet(n)||!this.hasIncomplete())return;
+    const due=[];p.slots.forEach((ts,i)=>{if(ts<=nm&&!p.sent.includes(i))due.push(i);});
     if(!due.length)return;
-    // If the app was backgrounded, consume all overdue slots but send only one catch-up notification.
-    const idx=due[due.length-1];
-    due.forEach(i=>{if(i!==idx)p.sent.push(i);});
+    const idx=due[due.length-1];due.forEach(i=>{if(i!==idx)p.sent.push(i);});
     if(p.sent.includes(idx))return;
-    const h=this.chooseHabit(list);if(!h){p.sent.push(idx);save();return;}
-    p.sent.push(idx);this.fire(h);save();
+    p.sent.push(idx);this.fire();save();
   }
 };
 async function askPerm(){if(!('Notification' in window)){toast('Notifications unsupported here — in-app alerts only.');return false;}if(Notification.permission==='default'){const p=await Notification.requestPermission();if(p!=='granted'){render();return false;}}let pushOk=false;try{pushOk=await registerPushNotifications();}catch(e){console.warn('Push registration unavailable:',e);}render();return pushOk;}
@@ -976,7 +959,7 @@ function setQ(k,v){state.settings.quiet[k]=v;save();}
 function setSim(){const v=document.getElementById('simT').value;if(!v)return;const r=new Date();state.settings.simOffset=toMin(v)-minutesSinceMidnight(r);save();ReminderManager.tick();render();}
 function advSim(x){state.settings.simOffset=(state.settings.simOffset||0)+x;save();ReminderManager.tick();render();}
 /* ===== v2: rendering ===== */
-function modal(h){document.getElementById('modalBody').innerHTML=h;document.getElementById('overlay').classList.add('show');}
+function modal(h){const body=document.getElementById('modalBody');body.innerHTML=h;body.classList.toggle('howto-shell',h.includes('howto-modal'));document.getElementById('overlay').classList.add('show');}
 function bellBtn(){const u=state.notifications.filter(x=>!x.read).length;return`<button class="iconbtn" style="position:relative" onclick="openNotifs()" aria-label="Notifications">🔔${u?`<span class="badge">${u}</span>`:''}</button>`;}
 function openNotifs(){const L=state.notifications.slice(0,40);modal(`<div class="rowflex"><h2 style="margin:0">Notifications</h2><button class="btn ghost sm" onclick="markRead()">Mark all read</button></div><div style="margin-top:10px">${L.length?L.map(x=>`<div class="item"><div class="itname" style="${x.read?'opacity:.6;font-weight:500':''}">${esc(x.msg)}<div class="meta">${new Date(x.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div></div><button class="delbtn" onclick="dismissNote('${x.id}')">×</button></div>`).join(''):'<div class="meta">Nothing yet.</div>'}</div>`);}
 function markRead(){state.notifications.forEach(x=>x.read=true);save();openNotifs();render();}
@@ -1281,12 +1264,12 @@ function notifSettings(){
   <div class="field"><label>Reminder style</label>${sel('mode',[['gentle','Gentle — one notification'],['normal','Normal — start + one follow-up'],['persistent','Persistent — repeat until done or max'],['alarm','Alarm — full-screen alert + sound']])}</div>
   <div class="field"><label>Alarm sound (only while app is open)</label>${sel('sound',[['off','Off'],['default','Default'],['soft','Soft'],['strong','Strong']])}</div>
   ${tg('taskRem','Task reminders')}${tg('habitRem','Schedule-linked habit reminders')}${tg('routineRem','Routine reminders')}${tg('overdueRem','Overdue follow-ups')}
-  <label class="chk"><input type="checkbox" ${S.uncompletedHabitReminders?'checked':''} onchange="setS('uncompletedHabitReminders',this.checked)"> Random reminders for uncompleted habits</label>
-  <div class="two"><div class="field"><label>Habit reminders per day</label><select onchange="setS('habitReminderMax',this.value)">${[3,4,5,6,8,10].map(x=>`<option value="${x}" ${Number(S.habitReminderMax)===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Reminder window</label><div class="two"><input type="time" value="${S.habitReminderStart}" onchange="setS('habitReminderStart',this.value)"><input type="time" value="${S.habitReminderEnd}" onchange="setS('habitReminderEnd',this.value)"></div></div></div>
-  <p class="meta" style="margin:-4px 0 12px">When enabled, Habit Flow creates random reminder times on the server and sends Web Push notifications about habits that are still incomplete. Completed or skipped habits leave the reminder pool. Notifications can arrive even when the iPhone Home Screen app is closed.</p>
+  <label class="chk"><input type="checkbox" ${S.uncompletedHabitReminders?'checked':''} onchange="setS('uncompletedHabitReminders',this.checked)"> General random habit reminders</label>
+  <div class="two"><div class="field"><label>Maximum reminders per day</label><select onchange="setS('habitReminderMax',this.value)">${[3,4,5,6,8,10].map(x=>`<option value="${x}" ${Number(S.habitReminderMax)===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Reminder window</label><div class="two"><input type="time" value="${S.habitReminderStart}" onchange="setS('habitReminderStart',this.value)"><input type="time" value="${S.habitReminderEnd}" onchange="setS('habitReminderEnd',this.value)"></div></div></div>
+  <p class="meta" style="margin:-4px 0 12px">When enabled, Habit Flow sends a simple general reminder when you still have habits to complete. Reminder times are random, with at least 30 minutes between notifications and natural gaps of up to 2 hours. Notifications can arrive even when the iPhone Home Screen app is closed.</p>
   <label class="chk"><input type="checkbox" ${S.quiet.enabled?'checked':''} onchange="setQ('enabled',this.checked)"> Quiet hours (P1 items still notify)</label>
   <div class="two"><div class="field"><label>From</label><input type="time" value="${S.quiet.start}" onchange="setQ('start',this.value)"></div><div class="field"><label>To</label><input type="time" value="${S.quiet.end}" onchange="setQ('end',this.value)"></div></div>
-  <p class="meta"><b>Push reminders:</b> the daily random schedule is processed by Supabase every minute and delivered through Web Push. The app must be installed/added to the iPhone Home Screen and notifications must be allowed. The existing in-app timer remains only as a local fallback until server-side reminders are configured.</p></div>
+  <p class="meta"><b>Push reminders:</b> the random reminder schedule is processed by Supabase every minute and delivered through Web Push. The app must be installed/added to the iPhone Home Screen and notifications must be allowed. The existing in-app timer remains only as a local fallback until server-side reminders are configured.</p></div>
   <div class="card"><h2>Developer · simulated time</h2><p class="meta" style="margin-bottom:10px">Clock now: ${fmtT(minutesSinceMidnight(now()))} ${S.simOffset?'(simulated — also shifts "today")':'(real)'}</p>
   <div class="two"><div class="field"><label>Jump to</label><input type="time" id="simT"></div><div class="field"><label>&nbsp;</label><button class="btn ghost" onclick="setSim()">Apply</button></div></div>
   <div class="sact"><button class="btn ghost sm" onclick="advSim(30)">+30 min</button><button class="btn ghost sm" onclick="advSim(60)">+1 h</button><button class="btn ghost sm" onclick="setS('simOffset',0)">Real time</button></div></div>`;
