@@ -482,7 +482,6 @@ function renderToday(){
 function setMood(m){state.moods[todayKey()]=m;save();render();}
 
 function renderHabits(){
-  alert("NEW HABITS FUNCTION IS RUNNING");
   const total = state.habits.length;
   const today = todayKey();
   const done = state.habits.filter(h => h.completions[today] === 'done').length;
