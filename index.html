@@ -448,11 +448,19 @@ function resetAll(){if(confirm('Clear the data stored on this device? Your accou
 
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
+let lastRenderedPage=null;
 function render(){
+  // The monthly tracker is rebuilt every time the page changes. When returning to
+  // Habits from another section, force its auto-positioning to run again so the
+  // current/newest part of the month is visible instead of the far-left start.
+  const enteringHabits=page==='habits'&&lastRenderedPage!=='habits';
+  if(enteringHabits)habitGridAutoPositioned=false;
+
   document.getElementById('main').innerHTML={today:renderToday,schedule:renderSchedule,habits:renderHabits,progress:renderProgress,settings:renderSettings}[page]();
   document.querySelectorAll('.navitem,.bnitem').forEach(el=>el.classList.toggle('active',el.dataset.page===page));
   document.getElementById('fab').style.display=(page==='progress'||page==='settings')?'none':'';
   afterRender();
+  lastRenderedPage=page;
 }
 document.querySelectorAll('.navitem,.bnitem').forEach(el=>el.addEventListener('click',()=>{page=el.dataset.page;schedScrolled=false;render();}));
 

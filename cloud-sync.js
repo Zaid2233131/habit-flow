@@ -33,13 +33,16 @@ async function loadHabitsFromCloud() {
     return;
   }
 
-  // Convert Supabase habits into Habit Flow's current format
+  // Convert Supabase habits into Habit Flow's current format.
+  // IMPORTANT: Supabase stores frequency as scalar values (daily/weekly/monthly/custom)
+  // plus target_days/target_value. Convert those back into the UI frequency object so
+  // specific-day and quota habits do not silently become daily habits after reload.
   state.habits = (data || []).map(habit => ({
     id: habit.id,
     name: habit.name,
     category: (habit.description || "Other").split("|")[0] || "Other",
     icon: (habit.description || "").split("|")[1] || "",
-    frequency: habit.frequency || "daily",
+    frequency: normalizeHabitFrequencyFromCloud(habit),
     completions: {},
     longest: 0,
     createdAt: habit.created_at
@@ -52,6 +55,49 @@ async function loadHabitsFromCloud() {
 
 
 // Save one habit to Supabase
+function normalizeHabitFrequencyFromCloud(habit) {
+  const frequency = habit?.frequency || "daily";
+  const targetDays = Array.isArray(habit?.target_days) ? habit.target_days.map(Number).filter(Number.isFinite) : [];
+  const targetValue = Math.max(1, Number(habit?.target_value) || 1);
+
+  if (frequency === "custom") {
+    return { type: "specific_days", days: targetDays };
+  }
+  if (frequency === "weekly") {
+    return { type: "times_per_week", count: targetValue };
+  }
+  if (frequency === "monthly") {
+    return { type: "times_per_month", count: targetValue };
+  }
+  if (frequency === "daily") return { type: "daily" };
+
+  // Backward compatibility with older object/string records.
+  if (typeof frequency === "object" && frequency?.type) return frequency;
+  try {
+    const parsed = JSON.parse(String(frequency));
+    if (parsed?.type) return parsed;
+  } catch (_) {}
+  return { type: "daily" };
+}
+
+function habitFrequencyForCloud(habit) {
+  const f = habit?.frequency && typeof habit.frequency === "object"
+    ? habit.frequency
+    : { type: habit?.frequency || "daily" };
+
+  if (f.type === "specific_days") {
+    return { frequency: "custom", target_days: Array.isArray(f.days) ? f.days.map(Number).filter(Number.isFinite) : [], target_value: Array.isArray(f.days) ? f.days.length : 1 };
+  }
+  if (f.type === "times_per_week") {
+    return { frequency: "weekly", target_days: [], target_value: Math.max(1, Number(f.count) || 1) };
+  }
+  if (f.type === "times_per_month") {
+    return { frequency: "monthly", target_days: [], target_value: Math.max(1, Number(f.count) || 1) };
+  }
+  return { frequency: "daily", target_days: [], target_value: 1 };
+}
+
+// Save one habit to Supabase using the existing scalar DB fields.
 async function saveHabitToCloud(habit) {
   const user = await getCurrentUser();
 
@@ -60,13 +106,17 @@ async function saveHabitToCloud(habit) {
     return false;
   }
 
+  const frequencyData = habitFrequencyForCloud(habit);
+
   const { data, error } = await supabaseClient
     .from("habits")
     .insert({
       user_id: user.id,
       name: habit.name,
-      description: (habit.category || "") + (habit.icon ? "|" + habit.icon : ""), // icon rides in the existing text column
-      frequency: typeof habit.frequency === "string" ? habit.frequency : JSON.stringify(habit.frequency || {type:"daily"})
+      description: (habit.category || "") + (habit.icon ? "|" + habit.icon : ""),
+      frequency: frequencyData.frequency,
+      target_days: frequencyData.target_days,
+      target_value: frequencyData.target_value
     })
     .select()
     .single();

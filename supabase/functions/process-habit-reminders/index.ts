@@ -56,9 +56,20 @@ function makeSlots(start: number, end: number, count: number) {
   return out.sort((a, b) => a - b);
 }
 
-function parseFrequency(raw: unknown) {
+function parseFrequency(raw: unknown, targetDays: unknown = [], targetValue: unknown = 1) {
   if (raw && typeof raw === "object") return raw as any;
+
+  const days = Array.isArray(targetDays)
+    ? targetDays.map(Number).filter(Number.isFinite)
+    : [];
+  const count = Math.max(1, Number(targetValue) || 1);
+
   if (!raw || raw === "daily") return { type: "daily" };
+  if (raw === "custom") return { type: "specific_days", days };
+  if (raw === "weekly") return { type: "times_per_week", count };
+  if (raw === "monthly") return { type: "times_per_month", count };
+
+  // Backward compatibility with older JSON/string records.
   try {
     const parsed = JSON.parse(String(raw));
     if (parsed && parsed.type) return parsed;
@@ -102,7 +113,7 @@ function habitDueToday(habit: any, date: string, completions: Map<string, number
   const created = String(habit.created_at).slice(0, 10);
   if (created > date) return false;
 
-  const f = parseFrequency(habit.frequency);
+  const f = parseFrequency(habit.frequency, habit.target_days, habit.target_value);
 
   if (f.type === "specific_days") {
     return Array.isArray(f.days) && f.days.includes(dayOfWeek(date));
@@ -196,7 +207,7 @@ async function sendForUser(row: any) {
 
   const { data: habits, error: hErr } = await admin
     .from("habits")
-    .select("id,name,created_at,frequency")
+    .select("id,name,created_at,frequency,target_days,target_value")
     .eq("user_id", row.user_id)
     .order("created_at", { ascending: true });
 
