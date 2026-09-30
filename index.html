@@ -612,23 +612,186 @@ function renderHabits(){
       html += `</div>`;
     });
 
-  } else {
+ } else {
 
-    /*
-      HISTORY VIEW
-      Calendar will be added in the next step.
-    */
+  const current = now();
+  const year = current.getFullYear();
+  const month = current.getMonth();
 
-    html += `
-      <div class="card empty">
-        <h2 style="margin-bottom:8px">Habit History</h2>
-        <p>
-          Your calendar history will appear here.
-        </p>
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const monthName = new Date(year, month, 1).toLocaleDateString(
+    undefined,
+    { month: 'long', year: 'numeric' }
+  );
+
+  html += `
+    <div class="card" style="padding:0;overflow:hidden">
+
+      <div style="
+        padding:18px 20px;
+        border-bottom:1px solid var(--border);
+      ">
+        <h2>${monthName}</h2>
+        <div class="meta" style="margin-top:4px">
+          Habit completion history
+        </div>
       </div>
-    `;
-  }
 
+      <div style="
+        overflow-x:auto;
+        width:100%;
+      ">
+
+        <table style="
+          border-collapse:collapse;
+          min-width:${220 + daysInMonth * 42}px;
+          width:100%;
+        ">
+
+          <thead>
+            <tr>
+
+              <th style="
+                position:sticky;
+                left:0;
+                z-index:2;
+                background:var(--card);
+                min-width:200px;
+                text-align:left;
+                padding:12px;
+                border-bottom:1px solid var(--border);
+              ">
+                Habit
+              </th>
+
+              ${Array.from({length:daysInMonth},(_,i)=>{
+
+                const d = new Date(year,month,i+1);
+                const k = localKey(d);
+                const isCurrent = k === todayKey();
+
+                return `
+                  <th style="
+                    min-width:42px;
+                    padding:10px 4px;
+                    text-align:center;
+                    border-bottom:1px solid var(--border);
+                    font-size:12px;
+                    ${isCurrent ? 'color:var(--accent);font-weight:800;' : ''}
+                  ">
+                    ${i+1}
+                  </th>
+                `;
+
+              }).join('')}
+
+            </tr>
+          </thead>
+
+          <tbody>
+
+            ${state.habits.map(h => {
+
+              const createdDate = new Date(h.createdAt);
+              const createdKey = localKey(createdDate);
+
+              return `
+                <tr>
+
+                  <td style="
+                    position:sticky;
+                    left:0;
+                    z-index:1;
+                    background:var(--card);
+                    min-width:200px;
+                    padding:12px;
+                    border-bottom:1px solid var(--border);
+                    font-weight:600;
+                  ">
+                    ${esc(h.name)}
+                  </td>
+
+                  ${Array.from({length:daysInMonth},(_,i)=>{
+
+                    const d = new Date(year,month,i+1);
+                    const k = localKey(d);
+
+                    let symbol = '—';
+                    let opacity = '0.35';
+
+                    if(k >= createdKey){
+
+                      const status = h.completions[k];
+
+                      if(status === 'done'){
+                        symbol = '✓';
+                        opacity = '1';
+                      }
+                      else if(status === 'skip'){
+                        symbol = '–';
+                        opacity = '0.8';
+                      }
+                      else if(k === todayKey()){
+                        symbol = '○';
+                        opacity = '1';
+                      }
+                      else {
+                        symbol = '✕';
+                        opacity = '0.7';
+                      }
+                    }
+
+                    return `
+                      <td style="
+                        min-width:42px;
+                        width:42px;
+                        height:42px;
+                        text-align:center;
+                        border-bottom:1px solid var(--border);
+                        font-size:15px;
+                        font-weight:700;
+                        opacity:${opacity};
+                      ">
+                        ${symbol}
+                      </td>
+                    `;
+
+                  }).join('')}
+
+                </tr>
+              `;
+
+            }).join('')}
+
+          </tbody>
+
+        </table>
+
+      </div>
+
+    </div>
+
+    <div class="card" style="margin-top:14px">
+
+      <div style="
+        display:flex;
+        flex-wrap:wrap;
+        gap:16px;
+        font-size:13px;
+        font-weight:600;
+      ">
+
+        <span>✓ Completed</span>
+        <span>✕ Missed</span>
+        <span>○ Today</span>
+        <span>— Not created</span>
+
+      </div>
+
+    </div>
+  `;
+}
   return html;
 }
 
