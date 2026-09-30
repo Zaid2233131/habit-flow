@@ -145,45 +145,61 @@ async function sendPush(
   userId: string,
   title: string,
   message: string
-) {
-  const response = await fetch(
-    `${SUPABASE_URL}/functions/v1/send-push`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": SERVICE_ROLE_KEY,
-        "Authorization": `Bearer ${SERVICE_ROLE_KEY}`
-      },
-      body: JSON.stringify({
-        user_id: userId,
-        title,
-        message
-      })
-    }
-  );
-
-  const text = await response.text();
-
-  let data: any;
-
+): Promise<boolean> {
   try {
-    data = JSON.parse(text);
-  } catch {
-    data = { raw: text };
+    const response = await fetch(
+      `${SUPABASE_URL}/functions/v1/send-push`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SERVICE_ROLE_KEY,
+          "Authorization": `Bearer ${SERVICE_ROLE_KEY}`,
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          title,
+          message,
+        }),
+      }
+    );
+
+    const data = await response.json().catch(() => null);
+
+    console.log("send-push response:", {
+      status: response.status,
+      data,
+    });
+
+    if (!response.ok) {
+      console.error(
+        "send-push HTTP failure:",
+        response.status,
+        data
+      );
+      return false;
+    }
+
+    const successfulSubscriptions =
+      Array.isArray(data?.sent)
+        ? data.sent.filter(
+            (item: any) => item?.success === true
+          )
+        : [];
+
+    if (successfulSubscriptions.length === 0) {
+      console.error(
+        "send-push completed but no subscription succeeded:",
+        data
+      );
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("send-push request failed:", error);
+    return false;
   }
-
-  console.log(
-    "send-push response:",
-    response.status,
-    data
-  );
-
-  return {
-    ok: response.ok,
-    status: response.status,
-    data
-  };
 }
 
 async function sendForUser(row: any) {
