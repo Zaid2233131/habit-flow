@@ -34,9 +34,24 @@ async function urlBase64ToUint8Array(base64String) {
 }
 
 
+// Electron loads this page from file://, where no service worker is ever registered
+// (see the https?: check where sw.js is registered). Web Push therefore cannot work
+// there, and navigator.serviceWorker.ready would never resolve.
+const IS_ELECTRON =
+  !!window.electronAPI || /\bElectron\//i.test(navigator.userAgent);
+
+function pushRegistrationAvailable() {
+  return !IS_ELECTRON && /^https?:$/.test(location.protocol);
+}
+
 async function registerPushNotifications() {
 
   try {
+
+    if (!pushRegistrationAvailable()) {
+      console.info("Web Push registration skipped: no service worker in this environment.");
+      return false;
+    }
 
     if (!("serviceWorker" in navigator)) {
       console.warn("Service workers are not supported.");
@@ -439,7 +454,14 @@ async function delTask(id){
 function todaysTasks(){
   return state.tasks.filter(t=>(!t.completed && (!t.due||t.due<=todayKey())) || (t.completed && t.completedAt===todayKey()));
 }
-function greeting(){const h=now().getHours();return h<12?'Good morning':h<18?'Good afternoon':'Good evening';}
+function greeting(){
+  // Uses the device's real local clock (not the simulated-time offset).
+  const h=new Date().getHours();
+  if(h>=5&&h<12)return'Good Morning';    // 5:00 AM - 11:59 AM
+  if(h>=12&&h<17)return'Good Afternoon';  // 12:00 PM - 4:59 PM
+  if(h>=17&&h<21)return'Good Evening';    // 5:00 PM - 8:59 PM
+  return'Good Night';                     // 9:00 PM - 4:59 AM
+}
 
 function setMood(m){state.moods[todayKey()]=m;save();render();}
 
