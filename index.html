@@ -260,10 +260,13 @@ h1{font-size:22px;margin:0 0 2px;letter-spacing:-.01em;}
 .alarm{text-align:center}.alarm .big{font-size:26px;font-weight:800;margin:6px 0}.alarm .pulse{font-size:40px;animation:pulse 1.6s ease-in-out infinite}
 @keyframes pulse{50%{transform:scale(1.12)}}@media(prefers-reduced-motion:reduce){.alarm .pulse{animation:none}}
 @media(min-width:840px){.toast{bottom:30px}}
+
+#hfIntro{position:fixed;inset:0;z-index:1000000;display:flex;align-items:center;justify-content:center;background:#080b0a;color:#fff;opacity:1;visibility:visible;transition:opacity .55s ease,visibility .55s ease}#hfIntro.hfIntroHide{opacity:0;visibility:hidden;pointer-events:none}.hfIntroCard{text-align:center;animation:hfIntroIn .8s ease both}.hfIntroCard img{width:96px;height:96px;border-radius:24px;display:block;margin:0 auto 20px;box-shadow:0 14px 50px rgba(0,0,0,.35)}.hfIntroTitle{font-size:30px;font-weight:800;letter-spacing:-.03em}.hfIntroDev{margin-top:7px;color:#8f9b97;font-size:13px;letter-spacing:.03em}@keyframes hfIntroIn{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}.day-picks{display:grid;grid-template-columns:repeat(7,1fr);gap:7px}.day-pick{position:relative}.day-pick input{position:absolute;opacity:0;pointer-events:none}.day-pick span{display:flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--dim);font-size:12px;font-weight:700;cursor:pointer}.day-pick input:checked+span{background:var(--accent);border-color:var(--accent);color:#fff}.weekly-card{margin-bottom:18px}.weekly-row{display:grid;grid-template-columns:minmax(150px,1fr) minmax(150px,1.5fr) 48px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)}.weekly-row:last-child{border-bottom:0}.weekly-name{display:flex;gap:9px;align-items:center;min-width:0}.weekly-name>span{width:22px;text-align:center}.weekly-name b,.weekly-name small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.weekly-name small{color:var(--dim);font-size:10px;margin-top:2px}.weekly-row>strong{text-align:right;font-size:12px}.analysis-name small{display:block;color:var(--dim);font-size:9px;margin-top:2px}@media(max-width:700px){.day-picks{grid-template-columns:repeat(4,1fr)}.weekly-row{grid-template-columns:1fr 1.1fr 40px}}
 </style>
 <link rel="stylesheet" href="views.css">
 </head>
 <body>
+<div id="hfIntro" aria-label="Habit Flow intro"><div class="hfIntroCard"><img src="icon-192.png" alt="Habit Flow"><div class="hfIntroTitle">Habit Flow</div><div class="hfIntroDev">Developed by Zaid Sohail</div></div></div>
 <div class="layout">
   <div class="sidebar">
     <div class="brand">Habit Flow</div>
@@ -314,6 +317,26 @@ const minutesSinceMidnight=d=>d.getHours()*60+d.getMinutes();
 const isToday=k=>k===localKey(now());
 const getLocalDateKey=()=>localKey(now());
 const getLocalTime=()=>pad(now().getHours())+':'+pad(now().getMinutes());
+function parseHabitFrequency(raw){
+  if(raw&&typeof raw==='object')return raw;
+  if(!raw||raw==='daily')return{type:'daily'};
+  try{const x=JSON.parse(raw);if(x&&x.type)return x;}catch(e){}
+  if(typeof raw==='string'&&raw.startsWith('specific:'))return{type:'specific_days',days:raw.slice(9).split(',').map(Number).filter(Number.isFinite)};
+  return{type:'daily'};
+}
+function habitWeekStartKey(k){const d=new Date(k+'T00:00:00');d.setDate(d.getDate()-d.getDay());return localKey(d);}
+function habitWeekKeys(k){const d=new Date(habitWeekStartKey(k)+'T00:00:00');return [...Array(7)].map((_,i)=>{const x=new Date(d);x.setDate(d.getDate()+i);return localKey(x);});}
+function habitDoneInKeys(h,keys){return keys.filter(k=>h.completions&&h.completions[k]==='done').length;}
+function habitQuotaDone(h,k){const f=parseHabitFrequency(h.frequency);if(f.type==='times_per_week')return habitDoneInKeys(h,habitWeekKeys(k));if(f.type==='times_per_month'){const d=new Date(k+'T00:00:00');return habitDoneInKeys(h,[...Array(new Date(d.getFullYear(),d.getMonth()+1,0).getDate())].map((_,i)=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(i+1)));}return 0;}
+function habitDueOnDate(h,k){
+  if(!h||k<localKey(new Date(h.createdAt)))return false;
+  const f=parseHabitFrequency(h.frequency);
+  if(f.type==='daily')return true;
+  if(f.type==='specific_days')return (f.days||[]).includes(new Date(k+'T00:00:00').getDay());
+  const q=Math.max(1,Number(f.count)||1);
+  return habitQuotaDone(h,k)<q;
+}
+
 /* ===== v2: state schema + migration ===== */
 function migrateV1ToV2(o){
   const d=defaultState(),s=Object.assign(d,o||{});
@@ -326,6 +349,8 @@ function migrateV1ToV2(o){
   s.settings.habitReminderPlan = Object.assign({date:null,slots:[],sent:[],lastHabitId:null},s.settings.habitReminderPlan||{});
   s.settings.serverHabitRemindersReady = !!s.settings.serverHabitRemindersReady;
   ['schedules','notifications','reminderLogs'].forEach(k=>{if(!Array.isArray(s[k]))s[k]=[];});
+  if(!Array.isArray(s.habits))s.habits=[];
+  s.habits.forEach(h=>{if(!h.frequency)h.frequency='daily';if(!h.completions)h.completions={};});
   s.v=2;return s; // habits/tasks/moods pass through untouched
 }
 let state=load();
@@ -445,7 +470,10 @@ function fillForm(){
     <div class="field"><label>Name</label><input id="hName" placeholder="e.g. Read 10 pages"></div>
     <div class="field"><label>Icon (optional emoji)</label><input id="hIcon" maxlength="4" placeholder="💪"></div>
     <div class="field"><label>Category</label><select id="hCat">${CATS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+    <div class="field"><label>Frequency</label><select id="hFreqType" onchange="renderHabitFrequencyOptions()"><option value="daily">Every day</option><option value="specific_days">Specific days</option><option value="times_per_week">X times per week</option><option value="times_per_month">X times per month</option></select></div>
+    <div id="hFreqOptions"></div>
     <div class="modalfoot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="submitHabit()">Add habit</button></div>`;
+    renderHabitFrequencyOptions();
   } else {
     area.innerHTML=`<h2>New task</h2>
     <div class="field"><label>Title</label><input id="tTitle" placeholder="e.g. Finish assignment"></div>
@@ -456,6 +484,28 @@ function fillForm(){
   }
 }
 function closeModal(){document.getElementById('overlay').classList.remove('show');}
+function renderHabitFrequencyOptions(){
+  const type=document.getElementById('hFreqType')?.value;
+  const box=document.getElementById('hFreqOptions');if(!box)return;
+  if(type==='specific_days'){
+    const days=[['1','Mon'],['2','Tue'],['3','Wed'],['4','Thu'],['5','Fri'],['6','Sat'],['0','Sun']];
+    box.innerHTML=`<div class="field"><label>Choose days</label><div class="day-picks">${days.map(([v,l])=>`<label class="day-pick"><input type="checkbox" name="hDay" value="${v}"><span>${l}</span></label>`).join('')}</div><p class="meta">Only these days count toward the habit goal. Other days are not missed.</p></div>`;
+  }else if(type==='times_per_week'){
+    box.innerHTML=`<div class="field"><label>How many times per week?</label><input id="hFreqCount" type="number" min="1" max="14" value="2"><p class="meta">You can complete it on any days. Once the weekly target is reached, the habit is complete for that week.</p></div>`;
+  }else if(type==='times_per_month'){
+    box.innerHTML=`<div class="field"><label>How many times per month?</label><input id="hFreqCount" type="number" min="1" max="31" value="4"><p class="meta">Choose any days during the month to reach the target.</p></div>`;
+  }else box.innerHTML=`<p class="meta" style="margin:-2px 0 12px">This habit is expected every day.</p>`;
+}
+function readHabitFrequency(){
+  const type=document.getElementById('hFreqType')?.value||'daily';
+  if(type==='specific_days'){
+    const days=[...document.querySelectorAll('input[name="hDay"]:checked')].map(x=>Number(x.value));
+    if(!days.length){toast('Pick at least one day');return null;}
+    return{type,days};
+  }
+  if(type==='times_per_week'||type==='times_per_month')return{type,count:Math.max(1,Number(document.getElementById('hFreqCount')?.value)||1)};
+  return{type:'daily'};
+}
 async function submitHabit(){
   const name = document.getElementById('hName').value.trim();
 
@@ -466,10 +516,13 @@ async function submitHabit(){
     name,
     category: document.getElementById('hCat').value,
     icon: document.getElementById('hIcon').value.trim(),
+    frequency: readHabitFrequency(),
     completions: {},
     longest: 0,
     createdAt: new Date().toISOString()
   };
+
+  if(!habit.frequency)return;
 
   // Show it immediately in the app
   state.habits.push(habit);
@@ -856,7 +909,7 @@ const HabitReminderManager={
   start(){if(state.settings.serverHabitRemindersReady)return;if(this.timer)return;this.ensurePlan();this.tick();this.timer=setInterval(()=>this.tick(),30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)this.tick();});},
   enabled(){const S=state.settings;return !!(S.notificationsEnabled&&S.uncompletedHabitReminders);},
   inQuiet(n){const q=state.settings.quiet;if(!q||!q.enabled)return false;const m=minutesSinceMidnight(n),a=toMin(q.start),b=toMin(q.end);return a>b?(m>=a||m<b):(m>=a&&m<b);},
-  eligible(){const k=todayKey();return state.habits.filter(h=>h.completions[k]!=='done'&&h.completions[k]!=='skip');},
+  eligible(){const k=todayKey();return state.habits.filter(h=>habitDueOnDate(h,k)&&h.completions[k]!=='done'&&h.completions[k]!=='skip');},
   randomSlots(dateKey){
     const S=state.settings,n=Math.max(1,Math.min(10,Number(S.habitReminderMax)||6));
     let start=toMin(S.habitReminderStart||'09:00'),end=toMin(S.habitReminderEnd||'22:00');
@@ -1246,6 +1299,11 @@ document.getElementById('main').insertAdjacentHTML('afterend','<div class="toast
 if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register('sw.js').then(r=>{swReg=r;}).catch(()=>{});
 ReminderManager.start();
 HabitReminderManager.start();
+(function startHabitFlowIntro(){
+  const intro=document.getElementById('hfIntro');
+  if(!intro)return;
+  setTimeout(()=>{intro.classList.add('hfIntroHide');setTimeout(()=>intro.remove(),650);},5000);
+})();
 setInterval(renderIfLive,30000); // keeps NOW line / statuses live without refresh
 // First render happens at the end of views.js (the view functions live there now).
 </script>

@@ -39,6 +39,7 @@ async function loadHabitsFromCloud() {
     name: habit.name,
     category: (habit.description || "Other").split("|")[0] || "Other",
     icon: (habit.description || "").split("|")[1] || "",
+    frequency: habit.frequency || "daily",
     completions: {},
     longest: 0,
     createdAt: habit.created_at
@@ -65,7 +66,7 @@ async function saveHabitToCloud(habit) {
       user_id: user.id,
       name: habit.name,
       description: (habit.category || "") + (habit.icon ? "|" + habit.icon : ""), // icon rides in the existing text column
-      frequency: "daily"
+      frequency: typeof habit.frequency === "string" ? habit.frequency : JSON.stringify(habit.frequency || {type:"daily"})
     })
     .select()
     .single();

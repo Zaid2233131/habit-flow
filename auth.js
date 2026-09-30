@@ -158,6 +158,10 @@
     inset: "0",
     zIndex: "999999",
     display: "flex",
+    opacity: "0",
+    visibility: "hidden",
+    pointerEvents: "none",
+    transition: "opacity .2s ease",
     alignItems: "center",
     justifyContent: "center",
     background: "#080808",
@@ -166,6 +170,19 @@
   });
 
   document.body.appendChild(authGate);
+
+  function showAuthGate() {
+    if (!document.body.contains(authGate)) document.body.appendChild(authGate);
+    authGate.style.opacity = "1";
+    authGate.style.visibility = "visible";
+    authGate.style.pointerEvents = "auto";
+  }
+
+  function hideAuthGate() {
+    authGate.style.opacity = "0";
+    authGate.style.visibility = "hidden";
+    authGate.style.pointerEvents = "none";
+  }
 
   const form = document.getElementById("authForm");
   const emailInput = document.getElementById("authEmail");
@@ -279,7 +296,7 @@
 
           window.habitFlowUser = data.user;
 
-          authGate.remove();
+          hideAuthGate();
 
           if (typeof render === "function") {
             render();
@@ -307,7 +324,7 @@
 
           window.habitFlowUser = data.user;
 
-          authGate.remove();
+          hideAuthGate();
 
           if (typeof render === "function") {
             render();
@@ -357,18 +374,22 @@
     await loadAllFromCloud();
   }
 
-  authGate.remove();
+  hideAuthGate();
 
   if (typeof render === "function") {
     render();
   }
 
+} else {
+  window.habitFlowUser = null;
+  showAuthGate();
 }
 
     } catch (error) {
 
       console.error("Auth initialization error:", error);
 
+      showAuthGate();
       showMessage(
         "Unable to connect to your account. Please refresh the page."
       );
@@ -389,9 +410,7 @@
     await loadAllFromCloud();
   }
 
-  if (document.body.contains(authGate)) {
-    authGate.remove();
-  }
+  hideAuthGate();
 
   if (typeof render === "function") {
     render();
@@ -405,5 +424,5 @@
 })();
 
 setTimeout(() => {
-  registerPushNotifications();
-}, 2000);
+  if (window.habitFlowUser) registerPushNotifications();
+}, 6000);
