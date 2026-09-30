@@ -303,7 +303,7 @@ document.querySelectorAll('.navitem,.bnitem').forEach(el=>{
 
 const KEY='habitflow-data-v2',OLD_KEY='habitflow-data-v1'; // v1 is left untouched as a backup
 const CATS=['Health','Fitness','Study','Work','Personal','Other'];
-function defaultState(){return{v:2,name:'there',theme:'system',habits:[],tasks:[],moods:{},schedules:[],notifications:[],reminderLogs:[],settings:{notificationsEnabled:false,mode:'normal',sound:'default',taskRem:true,habitRem:true,routineRem:true,overdueRem:true,quiet:{enabled:false,start:'23:00',end:'06:00'},simOffset:0}};}
+function defaultState(){return{v:2,name:'there',theme:'system',habits:[],tasks:[],moods:{},schedules:[],notifications:[],reminderLogs:[],settings:{notificationsEnabled:false,mode:'alarm',sound:'default',taskRem:true,habitRem:true,routineRem:true,overdueRem:true,uncompletedHabitReminders:true,habitReminderMax:6,habitReminderStart:'09:00',habitReminderEnd:'22:00',habitReminderPlan:{date:null,slots:[],sent:[],lastHabitId:null},quiet:{enabled:false,start:'23:00',end:'06:00'},simOffset:0}};}
 function load(){try{const raw=localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY);return migrateV1ToV2(raw?JSON.parse(raw):{});}catch(e){return defaultState();}}
 function save(){localStorage.setItem(KEY,JSON.stringify(state));}
 /* ===== v2: date/time utils (local timezone, never UTC) ===== */
@@ -319,6 +319,11 @@ function migrateV1ToV2(o){
   const d=defaultState(),s=Object.assign(d,o||{});
   s.settings=Object.assign(d.settings,(o&&o.settings)||{});
   s.settings.quiet=Object.assign({enabled:false,start:'23:00',end:'06:00'},s.settings.quiet||{});
+  s.settings.uncompletedHabitReminders = s.settings.uncompletedHabitReminders !== false;
+  s.settings.habitReminderMax = Math.max(1,Math.min(10,Number(s.settings.habitReminderMax)||6));
+  s.settings.habitReminderStart = s.settings.habitReminderStart || '09:00';
+  s.settings.habitReminderEnd = s.settings.habitReminderEnd || '22:00';
+  s.settings.habitReminderPlan = Object.assign({date:null,slots:[],sent:[],lastHabitId:null},s.settings.habitReminderPlan||{});
   ['schedules','notifications','reminderLogs'].forEach(k=>{if(!Array.isArray(s[k]))s[k]=[];});
   s.v=2;return s; // habits/tasks/moods pass through untouched
 }
@@ -597,6 +602,7 @@ function doSnooze(id,dk,mins){
   o.ov={start:fmtT(s),end:fmtT(Math.min(s+dur,1439))};
   o.snoozeUntil=n.getTime()+mins*60000;o.snoozes=(o.snoozes||0)+1;resetRem(o);
   logAction(id,'snooze');save();
+finishAlarmAction();
 closeModal();
 render();
 
@@ -617,6 +623,7 @@ resetRem(o);
 logAction(id,'reschedule');
 
 save();
+finishAlarmAction();
 closeModal();
 render();
 toast('Rescheduled to '+a);
@@ -767,12 +774,36 @@ function stopAlarmSound(){
   alarmOsc = null;
   alarmGain = null;
 }
+let activeAlarmKey=null;
+const alarmQueue=[];
+function alarmKey(id,dk){return id+'@'+dk;}
 function showAlarm(id,dk){
-  const it=findItem(id),t=slot(it,dk);
-  modal(`<div class="alarm"><div class="pulse">⏰</div><div class="meta">TIME TO START</div><div class="big">${esc(it.title)}</div><div class="meta">${fmtT(t.s)} – ${fmtT(t.e)}</div><p class="meta">Don't postpone unnecessarily.</p>
+  const key=alarmKey(id,dk);
+  if(activeAlarmKey===key)return;
+  if(activeAlarmKey){if(!alarmQueue.some(x=>x.key===key))alarmQueue.push({id,dk,key});return;}
+  const it=findItem(id);if(!it)return;
+  activeAlarmKey=key;
+  const t=slot(it,dk);
+  modal(`<div class="alarm"><div class="pulse">⏰</div><div class="meta">TIME TO START</div><div class="big">${esc(it.title)}</div><div class="meta">${fmtT(t.s)} – ${fmtT(t.e)}</div><p class="meta">Your scheduled time has arrived.</p>
   <div class="sact" style="justify-content:center"><button class="btn" onclick="schedAct('${id}','${dk}','start')">Start now</button><button class="btn ghost" onclick="doSnooze('${id}','${dk}',15)">Snooze 15 min</button><button class="btn ghost" onclick="openResched('${id}','${dk}')">Reschedule</button><button class="btn ghost" onclick="schedAct('${id}','${dk}','skip')">Skip</button></div>
-  <button class="delbtn" style="margin-top:10px" onclick="stopAlarmSound();logAction('${id}','dismiss');closeModal()">Dismiss</button></div>`);
+  <button class="delbtn" style="margin-top:10px" onclick="dismissAlarm('${id}','${dk}')">Dismiss</button></div>`);
   startAlarmSound();
+}
+function dismissAlarm(id,dk){
+  stopAlarmSound();
+  logAction(id,'dismiss');
+  activeAlarmKey=null;
+  closeModal();
+  showNextAlarm();
+}
+function finishAlarmAction(){
+  stopAlarmSound();
+  activeAlarmKey=null;
+  showNextAlarm();
+}
+function showNextAlarm(){
+  const next=alarmQueue.shift();
+  if(next)showAlarm(next.id,next.dk);
 }
 const ReminderManager={
   timer:null,
@@ -814,8 +845,71 @@ const ReminderManager={
   }
 };
 function renderIfLive(){if((page==='schedule'||page==='today')&&!document.getElementById('overlay').classList.contains('show')&&!document.hidden){const y=window.scrollY;render();window.scrollTo(0,y);}}
+/* ===== Random uncompleted-habit reminders =====
+   Generates a small daily set of randomized reminder times. Each due slot picks
+   one habit that is still incomplete today, so completed/skipped habits leave the pool.
+   This is intentionally client-side: browser push can wake the app only when backed by
+   a server scheduler. While Habit Flow is open/alive, these reminders run automatically. */
+const HabitReminderManager={
+  timer:null,
+  start(){if(this.timer)return;this.ensurePlan();this.tick();this.timer=setInterval(()=>this.tick(),30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)this.tick();});},
+  enabled(){const S=state.settings;return !!(S.notificationsEnabled&&S.uncompletedHabitReminders);},
+  inQuiet(n){const q=state.settings.quiet;if(!q||!q.enabled)return false;const m=minutesSinceMidnight(n),a=toMin(q.start),b=toMin(q.end);return a>b?(m>=a||m<b):(m>=a&&m<b);},
+  eligible(){const k=todayKey();return state.habits.filter(h=>h.completions[k]!=='done'&&h.completions[k]!=='skip');},
+  randomSlots(dateKey){
+    const S=state.settings,n=Math.max(1,Math.min(10,Number(S.habitReminderMax)||6));
+    let start=toMin(S.habitReminderStart||'09:00'),end=toMin(S.habitReminderEnd||'22:00');
+    if(end<=start)end=23*60;
+    const span=end-start;if(span<30)return[];
+    const count=Math.min(n,Math.max(1,Math.floor(span/60)));
+    const minGap=Math.max(45,Math.floor(span/(count+1)));
+    const slots=[];
+    for(let i=0;i<count;i++){
+      const lo=start+i*minGap+10,hi=Math.min(end-10,start+(i+1)*minGap-10);
+      const m=hi>lo?lo+Math.floor(Math.random()*(hi-lo+1)):Math.min(end-1,lo);
+      slots.push(new Date(dateKey+'T00:00:00').getTime()+m*60000);
+    }
+    return slots.sort((a,b)=>a-b);
+  },
+  ensurePlan(){
+    const S=state.settings,k=todayKey(),p=S.habitReminderPlan||{};
+    if(p.date===k&&Array.isArray(p.slots)&&Array.isArray(p.sent))return;
+    S.habitReminderPlan={date:k,slots:this.randomSlots(k),sent:[],lastHabitId:null};
+    // Keep the generated plan deterministic for the rest of the day.
+    save();
+  },
+  chooseHabit(list){
+    const last=state.settings.habitReminderPlan.lastHabitId;
+    const pool=list.length>1?list.filter(h=>h.id!==last):list;
+    return (pool.length?pool:list)[Math.floor(Math.random()*(pool.length?pool:list).length)];
+  },
+  fire(h){
+    const msg='You haven\'t completed “'+h.name+'” yet. Take a moment to do it now.';
+    pushNote(msg,'habit-followup');
+    browserNotify(msg,'habit-'+h.id+'-'+todayKey());
+    toast('Habit reminder: '+h.name,6000);
+    state.settings.habitReminderPlan.lastHabitId=h.id;
+  },
+  tick(){
+    if(!this.enabled())return;
+    this.ensurePlan();
+    const n=now(),nm=n.getTime(),p=state.settings.habitReminderPlan;
+    if(this.inQuiet(n))return;
+    const list=this.eligible();
+    if(!list.length)return;
+    const due=[];
+    p.slots.forEach((ts,i)=>{if(ts<=nm&&!p.sent.includes(i))due.push(i);});
+    if(!due.length)return;
+    // If the app was backgrounded, consume all overdue slots but send only one catch-up notification.
+    const idx=due[due.length-1];
+    due.forEach(i=>{if(i!==idx)p.sent.push(i);});
+    if(p.sent.includes(idx))return;
+    const h=this.chooseHabit(list);if(!h){p.sent.push(idx);save();return;}
+    p.sent.push(idx);this.fire(h);save();
+  }
+};
 async function askPerm(){if(!('Notification' in window)){toast('Notifications unsupported here — in-app alerts only.');return;}if(Notification.permission==='default')await Notification.requestPermission();render();}
-function setS(k,v){state.settings[k]=v;save();if(k==='notificationsEnabled'&&v)askPerm();render();ReminderManager.tick();}
+function setS(k,v){state.settings[k]=v;if(k==='habitReminderMax')state.settings.habitReminderMax=Math.max(1,Math.min(10,Number(v)||6));if(['habitReminderMax','habitReminderStart','habitReminderEnd'].includes(k))state.settings.habitReminderPlan={date:null,slots:[],sent:[],lastHabitId:null};save();if(k==='notificationsEnabled'&&v)askPerm().then(()=>{ReminderManager.tick();HabitReminderManager.tick();});render();ReminderManager.tick();HabitReminderManager.tick();}
 function setQ(k,v){state.settings.quiet[k]=v;save();}
 function setSim(){const v=document.getElementById('simT').value;if(!v)return;const r=new Date();state.settings.simOffset=toMin(v)-minutesSinceMidnight(r);save();ReminderManager.tick();render();}
 function advSim(x){state.settings.simOffset=(state.settings.simOffset||0)+x;save();ReminderManager.tick();render();}
@@ -911,6 +1005,8 @@ function renderSchedule(){
     (a,b)=>slot(a,dk).s-slot(b,dk).s
   );
 
+  const alarmReady=state.settings.notificationsEnabled&&state.settings.mode==='alarm'&&state.settings.sound!=='off';
+
   let h=`
     <div class="topbar">
       <div>
@@ -927,6 +1023,11 @@ function renderSchedule(){
     ${weekNav}
 
     <div class="tabs">${tabs}</div>
+    <div class="alarm-banner ${alarmReady?'ready':''}">
+      <div class="alarm-banner-icon">⏰</div>
+      <div class="alarm-banner-copy"><b>${alarmReady?'Schedule alarms are ON':'Turn on schedule alarms'}</b><span>${alarmReady?'Popup + sound will appear when a scheduled item reaches its time.':'Get an alarm popup with sound, Snooze and Dismiss actions while Habit Flow is open.'}</span></div>
+      ${alarmReady?'<span class="alarm-status">ON</span>':`<button class="btn sm" onclick="enableScheduleAlarm()">Enable alarms</button>`}
+    </div>
   `;
 
   if(dk===today)h+=focusHtml(false);
@@ -968,7 +1069,27 @@ function renderSchedule(){
     ${rows}
   `;
 }
-function afterRender(){if(page==='schedule'&&!schedScrolled){schedScrolled=true;const e=document.getElementById('nowline');if(e)e.scrollIntoView({block:'center'});}}
+function positionHabitGrid(){
+  const wrap=document.getElementById('habitGridScroll');
+  if(!wrap)return;
+  const c=curMonth(),n=now(),currentMonth=c.y===n.getFullYear()&&c.m===n.getMonth();
+  const targetKey=currentMonth?todayKey():(c.y<n.getFullYear()||c.y===n.getFullYear()&&c.m<n.getMonth()?monthKeys(c.y,c.m).at(-1):monthKeys(c.y,c.m)[0]);
+  const target=wrap.querySelector(`[data-date=\"${targetKey}\"]`);
+  if(!target)return;
+  const sticky=wrap.querySelector('.habit-sticky');
+  const stickyWidth=sticky?sticky.getBoundingClientRect().width:0;
+  const visibleWidth=Math.max(0,wrap.clientWidth-stickyWidth);
+  const desired=target.offsetLeft-stickyWidth-Math.max(0,(visibleWidth-target.offsetWidth)/2);
+  const max=Math.max(0,wrap.scrollWidth-wrap.clientWidth);
+  wrap.scrollLeft=Math.max(0,Math.min(desired,max));
+}
+function afterRender(){
+  if(page==='schedule'&&!schedScrolled){schedScrolled=true;const e=document.getElementById('nowline');if(e)e.scrollIntoView({block:'center'});}
+  if(page==='habits'&&!habitGridAutoPositioned){
+    habitGridAutoPositioned=true;
+    requestAnimationFrame(()=>requestAnimationFrame(positionHabitGrid));
+  }
+}
 function conflictWith(it){for(let i=0;i<7;i++){const d=new Date(it.date+'T00:00:00');d.setDate(d.getDate()+i);const dk=localKey(d);if(!occurs(it,dk)||it.type==='break')continue;const a=slot(it,dk);for(const o of itemsFor(dk)){if(o.type==='break')continue;const b=slot(o,dk),ov=Math.min(a.e,b.e)-Math.max(a.s,b.s);if(ov>0)return{it:o,min:ov};}}return null;}
 function durHint(){const a=document.getElementById('sStart').value,b=document.getElementById('sEnd').value,e=document.getElementById('sDur');e.textContent=a&&b&&toMin(b)>toMin(a)?'Duration: '+fmtDur(toMin(b)-toMin(a)):'End must be after start';}
 function schedForm(){
@@ -1082,6 +1203,13 @@ async function submitSched(){
   }
 }
 
+function enableScheduleAlarm(){
+  state.settings.notificationsEnabled=true;
+  state.settings.mode='alarm';
+  if(state.settings.sound==='off')state.settings.sound='default';
+  save();
+  askPerm().then(()=>{ReminderManager.tick();render();});
+}
 function notifSettings(){
   const S=state.settings,p='Notification' in window?Notification.permission:'unsupported';
   const tg=(k,l)=>`<label class="chk"><input type="checkbox" ${S[k]?'checked':''} onchange="setS('${k}',this.checked)"> ${l}</label>`;
@@ -1090,10 +1218,13 @@ function notifSettings(){
   <p class="meta" style="margin:-6px 0 12px">${p==='granted'?'Browser notifications are allowed.':p==='denied'?"Browser notifications are blocked — you'll still get in-app alerts while the app is open.":p==='unsupported'?"This browser doesn't support notifications — in-app alerts only.":'Browser permission not granted yet.'}</p>
   <div class="field"><label>Reminder style</label>${sel('mode',[['gentle','Gentle — one notification'],['normal','Normal — start + one follow-up'],['persistent','Persistent — repeat until done or max'],['alarm','Alarm — full-screen alert + sound']])}</div>
   <div class="field"><label>Alarm sound (only while app is open)</label>${sel('sound',[['off','Off'],['default','Default'],['soft','Soft'],['strong','Strong']])}</div>
-  ${tg('taskRem','Task reminders')}${tg('habitRem','Habit reminders')}${tg('routineRem','Routine reminders')}${tg('overdueRem','Overdue follow-ups')}
+  ${tg('taskRem','Task reminders')}${tg('habitRem','Schedule-linked habit reminders')}${tg('routineRem','Routine reminders')}${tg('overdueRem','Overdue follow-ups')}
+  <label class="chk"><input type="checkbox" ${S.uncompletedHabitReminders?'checked':''} onchange="setS('uncompletedHabitReminders',this.checked)"> Random reminders for uncompleted habits</label>
+  <div class="two"><div class="field"><label>Habit reminders per day</label><select onchange="setS('habitReminderMax',this.value)">${[3,4,5,6,8,10].map(x=>`<option value="${x}" ${Number(S.habitReminderMax)===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Reminder window</label><div class="two"><input type="time" value="${S.habitReminderStart}" onchange="setS('habitReminderStart',this.value)"><input type="time" value="${S.habitReminderEnd}" onchange="setS('habitReminderEnd',this.value)"></div></div></div>
+  <p class="meta" style="margin:-4px 0 12px">When enabled, Habit Flow picks random times during the window and reminds you about a habit that is still incomplete. Completed or skipped habits leave the reminder pool.</p>
   <label class="chk"><input type="checkbox" ${S.quiet.enabled?'checked':''} onchange="setQ('enabled',this.checked)"> Quiet hours (P1 items still notify)</label>
   <div class="two"><div class="field"><label>From</label><input type="time" value="${S.quiet.start}" onchange="setQ('start',this.value)"></div><div class="field"><label>To</label><input type="time" value="${S.quiet.end}" onchange="setQ('end',this.value)"></div></div>
-  <p class="meta"><b>Browser limitation:</b> a web app can't guarantee alarms while the browser/app is fully closed. Reminders fire while Habit Flow is open or alive in the background (most reliable when installed as an app). On reopening, it recalculates what you missed from stored times and sends at most one catch-up reminder.</p></div>
+  <p class="meta"><b>Browser limitation:</b> random habit reminders run while Habit Flow is open or alive in the background. A fully closed browser cannot be woken by JavaScript timers; true closed-app reminders require a server-side push scheduler. On reopening, Habit Flow uses the saved daily random plan and sends at most one catch-up reminder.</p></div>
   <div class="card"><h2>Developer · simulated time</h2><p class="meta" style="margin-bottom:10px">Clock now: ${fmtT(minutesSinceMidnight(now()))} ${S.simOffset?'(simulated — also shifts "today")':'(real)'}</p>
   <div class="two"><div class="field"><label>Jump to</label><input type="time" id="simT"></div><div class="field"><label>&nbsp;</label><button class="btn ghost" onclick="setSim()">Apply</button></div></div>
   <div class="sact"><button class="btn ghost sm" onclick="advSim(30)">+30 min</button><button class="btn ghost sm" onclick="advSim(60)">+1 h</button><button class="btn ghost sm" onclick="setS('simOffset',0)">Real time</button></div></div>`;
@@ -1113,6 +1244,7 @@ function schedStats(){
 document.getElementById('main').insertAdjacentHTML('afterend','<div class="toast" id="toast" role="status" aria-live="polite"></div>');
 if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register('sw.js').then(r=>{swReg=r;}).catch(()=>{});
 ReminderManager.start();
+HabitReminderManager.start();
 setInterval(renderIfLive,30000); // keeps NOW line / statuses live without refresh
 // First render happens at the end of views.js (the view functions live there now).
 </script>
