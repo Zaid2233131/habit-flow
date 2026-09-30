@@ -303,7 +303,7 @@ document.querySelectorAll('.navitem,.bnitem').forEach(el=>{
 
 const KEY='habitflow-data-v2',OLD_KEY='habitflow-data-v1'; // v1 is left untouched as a backup
 const CATS=['Health','Fitness','Study','Work','Personal','Other'];
-function defaultState(){return{v:2,name:'there',theme:'system',habits:[],tasks:[],moods:{},schedules:[],notifications:[],reminderLogs:[],settings:{notificationsEnabled:false,mode:'alarm',sound:'default',taskRem:true,habitRem:true,routineRem:true,overdueRem:true,uncompletedHabitReminders:true,habitReminderMax:6,habitReminderStart:'09:00',habitReminderEnd:'22:00',habitReminderPlan:{date:null,slots:[],sent:[],lastHabitId:null},quiet:{enabled:false,start:'23:00',end:'06:00'},simOffset:0}};}
+function defaultState(){return{v:2,name:'there',theme:'system',habits:[],tasks:[],moods:{},schedules:[],notifications:[],reminderLogs:[],settings:{notificationsEnabled:false,mode:'alarm',sound:'default',taskRem:true,habitRem:true,routineRem:true,overdueRem:true,uncompletedHabitReminders:true,habitReminderMax:6,habitReminderStart:'09:00',habitReminderEnd:'22:00',habitReminderPlan:{date:null,slots:[],sent:[],lastHabitId:null},serverHabitRemindersReady:false,quiet:{enabled:false,start:'23:00',end:'06:00'},simOffset:0}};}
 function load(){try{const raw=localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY);return migrateV1ToV2(raw?JSON.parse(raw):{});}catch(e){return defaultState();}}
 function save(){localStorage.setItem(KEY,JSON.stringify(state));}
 /* ===== v2: date/time utils (local timezone, never UTC) ===== */
@@ -324,6 +324,7 @@ function migrateV1ToV2(o){
   s.settings.habitReminderStart = s.settings.habitReminderStart || '09:00';
   s.settings.habitReminderEnd = s.settings.habitReminderEnd || '22:00';
   s.settings.habitReminderPlan = Object.assign({date:null,slots:[],sent:[],lastHabitId:null},s.settings.habitReminderPlan||{});
+  s.settings.serverHabitRemindersReady = !!s.settings.serverHabitRemindersReady;
   ['schedules','notifications','reminderLogs'].forEach(k=>{if(!Array.isArray(s[k]))s[k]=[];});
   s.v=2;return s; // habits/tasks/moods pass through untouched
 }
@@ -852,7 +853,7 @@ function renderIfLive(){if((page==='schedule'||page==='today')&&!document.getEle
    a server scheduler. While Habit Flow is open/alive, these reminders run automatically. */
 const HabitReminderManager={
   timer:null,
-  start(){if(this.timer)return;this.ensurePlan();this.tick();this.timer=setInterval(()=>this.tick(),30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)this.tick();});},
+  start(){if(state.settings.serverHabitRemindersReady)return;if(this.timer)return;this.ensurePlan();this.tick();this.timer=setInterval(()=>this.tick(),30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)this.tick();});},
   enabled(){const S=state.settings;return !!(S.notificationsEnabled&&S.uncompletedHabitReminders);},
   inQuiet(n){const q=state.settings.quiet;if(!q||!q.enabled)return false;const m=minutesSinceMidnight(n),a=toMin(q.start),b=toMin(q.end);return a>b?(m>=a||m<b):(m>=a&&m<b);},
   eligible(){const k=todayKey();return state.habits.filter(h=>h.completions[k]!=='done'&&h.completions[k]!=='skip');},
@@ -908,8 +909,8 @@ const HabitReminderManager={
     p.sent.push(idx);this.fire(h);save();
   }
 };
-async function askPerm(){if(!('Notification' in window)){toast('Notifications unsupported here — in-app alerts only.');return;}if(Notification.permission==='default')await Notification.requestPermission();render();}
-function setS(k,v){state.settings[k]=v;if(k==='habitReminderMax')state.settings.habitReminderMax=Math.max(1,Math.min(10,Number(v)||6));if(['habitReminderMax','habitReminderStart','habitReminderEnd'].includes(k))state.settings.habitReminderPlan={date:null,slots:[],sent:[],lastHabitId:null};save();if(k==='notificationsEnabled'&&v)askPerm().then(()=>{ReminderManager.tick();HabitReminderManager.tick();});render();ReminderManager.tick();HabitReminderManager.tick();}
+async function askPerm(){if(!('Notification' in window)){toast('Notifications unsupported here — in-app alerts only.');return false;}if(Notification.permission==='default'){const p=await Notification.requestPermission();if(p!=='granted'){render();return false;}}let pushOk=false;try{pushOk=await registerPushNotifications();}catch(e){console.warn('Push registration unavailable:',e);}render();return pushOk;}
+async function setS(k,v){state.settings[k]=v;if(k==='habitReminderMax')state.settings.habitReminderMax=Math.max(1,Math.min(10,Number(v)||6));if(['habitReminderMax','habitReminderStart','habitReminderEnd'].includes(k))state.settings.habitReminderPlan={date:null,slots:[],sent:[],lastHabitId:null};save();if((k==='notificationsEnabled'&&v)||(k==='uncompletedHabitReminders'&&v)){await askPerm();}if(typeof syncHabitReminderSettingsToCloud==='function'){await syncHabitReminderSettingsToCloud();}render();ReminderManager.tick();if(!state.settings.serverHabitRemindersReady)HabitReminderManager.tick();}
 function setQ(k,v){state.settings.quiet[k]=v;save();}
 function setSim(){const v=document.getElementById('simT').value;if(!v)return;const r=new Date();state.settings.simOffset=toMin(v)-minutesSinceMidnight(r);save();ReminderManager.tick();render();}
 function advSim(x){state.settings.simOffset=(state.settings.simOffset||0)+x;save();ReminderManager.tick();render();}
@@ -1221,10 +1222,10 @@ function notifSettings(){
   ${tg('taskRem','Task reminders')}${tg('habitRem','Schedule-linked habit reminders')}${tg('routineRem','Routine reminders')}${tg('overdueRem','Overdue follow-ups')}
   <label class="chk"><input type="checkbox" ${S.uncompletedHabitReminders?'checked':''} onchange="setS('uncompletedHabitReminders',this.checked)"> Random reminders for uncompleted habits</label>
   <div class="two"><div class="field"><label>Habit reminders per day</label><select onchange="setS('habitReminderMax',this.value)">${[3,4,5,6,8,10].map(x=>`<option value="${x}" ${Number(S.habitReminderMax)===x?'selected':''}>${x}</option>`).join('')}</select></div><div class="field"><label>Reminder window</label><div class="two"><input type="time" value="${S.habitReminderStart}" onchange="setS('habitReminderStart',this.value)"><input type="time" value="${S.habitReminderEnd}" onchange="setS('habitReminderEnd',this.value)"></div></div></div>
-  <p class="meta" style="margin:-4px 0 12px">When enabled, Habit Flow picks random times during the window and reminds you about a habit that is still incomplete. Completed or skipped habits leave the reminder pool.</p>
+  <p class="meta" style="margin:-4px 0 12px">When enabled, Habit Flow creates random reminder times on the server and sends Web Push notifications about habits that are still incomplete. Completed or skipped habits leave the reminder pool. Notifications can arrive even when the iPhone Home Screen app is closed.</p>
   <label class="chk"><input type="checkbox" ${S.quiet.enabled?'checked':''} onchange="setQ('enabled',this.checked)"> Quiet hours (P1 items still notify)</label>
   <div class="two"><div class="field"><label>From</label><input type="time" value="${S.quiet.start}" onchange="setQ('start',this.value)"></div><div class="field"><label>To</label><input type="time" value="${S.quiet.end}" onchange="setQ('end',this.value)"></div></div>
-  <p class="meta"><b>Browser limitation:</b> random habit reminders run while Habit Flow is open or alive in the background. A fully closed browser cannot be woken by JavaScript timers; true closed-app reminders require a server-side push scheduler. On reopening, Habit Flow uses the saved daily random plan and sends at most one catch-up reminder.</p></div>
+  <p class="meta"><b>Push reminders:</b> the daily random schedule is processed by Supabase every minute and delivered through Web Push. The app must be installed/added to the iPhone Home Screen and notifications must be allowed. The existing in-app timer remains only as a local fallback until server-side reminders are configured.</p></div>
   <div class="card"><h2>Developer · simulated time</h2><p class="meta" style="margin-bottom:10px">Clock now: ${fmtT(minutesSinceMidnight(now()))} ${S.simOffset?'(simulated — also shifts "today")':'(real)'}</p>
   <div class="two"><div class="field"><label>Jump to</label><input type="time" id="simT"></div><div class="field"><label>&nbsp;</label><button class="btn ghost" onclick="setSim()">Apply</button></div></div>
   <div class="sact"><button class="btn ghost sm" onclick="advSim(30)">+30 min</button><button class="btn ghost sm" onclick="advSim(60)">+1 h</button><button class="btn ghost sm" onclick="setS('simOffset',0)">Real time</button></div></div>`;

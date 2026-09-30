@@ -1,5 +1,5 @@
 // Habit Flow service worker: offline app shell + notification display/click handling.
-// NOTE: no push server, so this cannot wake the app for reminders while it is closed.
+// Push reminders are delivered by the Supabase server-side scheduler, so this service worker can display them while the app is closed.
 const C='habitflow-v2',ASSETS=['./','./Habit_Flow.html','./manifest.json','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>Promise.allSettled(ASSETS.map(a=>c.add(a)))).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))).then(()=>self.clients.claim()));});
@@ -27,8 +27,10 @@ self.addEventListener("push", event => {
     body: data.body || "You have a reminder.",
     icon: data.icon || "icon-192.png",
     badge: data.badge || "icon-192.png",
+    tag: data.tag || 'habit-flow',
+    renotify: !!data.renotify,
     data: {
-      url: self.registration.scope
+      url: data.url || self.registration.scope
     }
   };
 

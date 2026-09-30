@@ -734,6 +734,97 @@ async function deleteScheduleFromCloud(id) {
   return true;
 }
 
+
+// ===============================
+// SERVER-SIDE HABIT REMINDER SYNC
+// ===============================
+
+async function syncHabitReminderSettingsToCloud() {
+  const user = await getCurrentUser();
+  if (!user) return false;
+
+  const S = state.settings || {};
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const row = {
+    user_id: user.id,
+    enabled: !!(S.notificationsEnabled && S.uncompletedHabitReminders),
+    max_reminders: Math.max(1, Math.min(10, Number(S.habitReminderMax) || 6)),
+    start_time: S.habitReminderStart || "09:00",
+    end_time: S.habitReminderEnd || "22:00",
+    quiet_enabled: !!S.quiet?.enabled,
+    quiet_start: S.quiet?.start || "23:00",
+    quiet_end: S.quiet?.end || "06:00",
+    timezone: tz
+  };
+
+  const { data, error } = await supabaseClient
+    .from("habit_reminder_plans")
+    .upsert(row, { onConflict: "user_id" })
+    .select("*")
+    .single();
+
+  if (error) {
+    console.error("Could not sync server-side habit reminder settings:", error);
+    state.settings.serverHabitRemindersReady = false;
+    save();
+    return false;
+  }
+
+  state.settings.serverHabitRemindersReady = true;
+  if (data?.plan_date) {
+    state.settings.habitReminderPlan = {
+      date: data.plan_date,
+      slots: Array.isArray(data.slots) ? data.slots : [],
+      sent: data.sent_slots && typeof data.sent_slots === "object" ? Object.keys(data.sent_slots).map(Number) : [],
+      lastHabitId: data.last_habit_id || null
+    };
+  }
+  save();
+  return true;
+}
+
+async function loadHabitReminderSettingsFromCloud() {
+  const user = await getCurrentUser();
+  if (!user) return false;
+
+  const { data, error } = await supabaseClient
+    .from("habit_reminder_plans")
+    .select("*")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Server-side habit reminder settings unavailable:", error);
+    state.settings.serverHabitRemindersReady = false;
+    save();
+    return false;
+  }
+
+  if (!data) {
+    return await syncHabitReminderSettingsToCloud();
+  }
+
+  state.settings.notificationsEnabled = !!data.enabled;
+  state.settings.uncompletedHabitReminders = !!data.enabled;
+  state.settings.habitReminderMax = Math.max(1, Math.min(10, Number(data.max_reminders) || 6));
+  state.settings.habitReminderStart = String(data.start_time || "09:00").slice(0,5);
+  state.settings.habitReminderEnd = String(data.end_time || "22:00").slice(0,5);
+  state.settings.quiet = Object.assign({}, state.settings.quiet, {
+    enabled: !!data.quiet_enabled,
+    start: String(data.quiet_start || "23:00").slice(0,5),
+    end: String(data.quiet_end || "06:00").slice(0,5)
+  });
+  state.settings.serverHabitRemindersReady = true;
+  state.settings.habitReminderPlan = {
+    date: data.plan_date || null,
+    slots: Array.isArray(data.slots) ? data.slots : [],
+    sent: data.sent_slots && typeof data.sent_slots === "object" ? Object.keys(data.sent_slots).map(Number) : [],
+    lastHabitId: data.last_habit_id || null
+  };
+  save();
+  return true;
+}
+
 // One shared loader so login and auth-state events never run overlapping loads
 // (a habits-only reload used to wipe the completions loaded a moment earlier).
 let _cloudLoad = null;
@@ -741,6 +832,10 @@ function loadAllFromCloud() {
   if (_cloudLoad) return _cloudLoad;
   _cloudLoad = (async () => {
     try {
+      await loadHabitReminderSettingsFromCloud();
+      if (state.settings.notificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
+        try { await registerPushNotifications(); } catch (e) { console.warn('Push re-registration skipped:', e); }
+      }
       await loadHabitsFromCloud();
       await loadHabitCompletionsFromCloud();
       await loadTasksFromCloud();
