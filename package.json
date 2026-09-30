@@ -1,7 +1,7 @@
 {
   "name": "habit-flow",
   "version": "1.0.0",
-  "description": "",
+  "description": "Habit Flow - Personal habit and daily productivity tracker",
   "main": "electron-main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -35,7 +35,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "habit-flow.ico"
     },
     "nsis": {
       "oneClick": false,

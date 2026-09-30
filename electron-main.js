@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow } = require("electron");
+﻿const { app, BrowserWindow, Menu } = require("electron");
 const path = require("path");
 
 function createWindow() {
@@ -13,7 +13,28 @@ function createWindow() {
     }
   });
 
+  // Open the app maximized.
+  win.maximize();
+
+  // Remove Electron's File / Edit / View / Window application menu.
+  Menu.setApplicationMenu(null);
+
   win.loadFile(path.join(__dirname, "index.html"));
+
+  // Hide the page scrollbar while keeping mouse-wheel/trackpad scrolling.
+  win.webContents.on("did-finish-load", () => {
+    win.webContents.insertCSS(`
+      ::-webkit-scrollbar {
+        width: 0 !important;
+        height: 0 !important;
+      }
+
+      html, body {
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+      }
+    `).catch(() => {});
+  });
 }
 
 app.whenReady().then(() => {
