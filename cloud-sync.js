@@ -37,7 +37,8 @@ async function loadHabitsFromCloud() {
   state.habits = (data || []).map(habit => ({
     id: habit.id,
     name: habit.name,
-    category: habit.description || "Other",
+    category: (habit.description || "Other").split("|")[0] || "Other",
+    icon: (habit.description || "").split("|")[1] || "",
     completions: {},
     longest: 0,
     createdAt: habit.created_at
@@ -63,7 +64,7 @@ async function saveHabitToCloud(habit) {
     .insert({
       user_id: user.id,
       name: habit.name,
-      description: habit.category || "",
+      description: (habit.category || "") + (habit.icon ? "|" + habit.icon : ""), // icon rides in the existing text column
       frequency: "daily"
     })
     .select()
@@ -172,6 +173,9 @@ async function loadHabitCompletionsFromCloud() {
     console.error("Could not load habit completions:", error);
     return;
   }
+
+  // Cloud is the source of truth: drop stale local completions before applying it
+  state.habits.forEach(h => { h.completions = {}; });
 
   for (const completion of data || []) {
     const habit = state.habits.find(
@@ -703,4 +707,22 @@ async function deleteScheduleFromCloud(id) {
 
   console.log("✅ Schedule deleted from Supabase:", id);
   return true;
+}
+
+// One shared loader so login and auth-state events never run overlapping loads
+// (a habits-only reload used to wipe the completions loaded a moment earlier).
+let _cloudLoad = null;
+function loadAllFromCloud() {
+  if (_cloudLoad) return _cloudLoad;
+  _cloudLoad = (async () => {
+    try {
+      await loadHabitsFromCloud();
+      await loadHabitCompletionsFromCloud();
+      await loadTasksFromCloud();
+      await loadSchedulesFromCloud();
+      save();
+      render();
+    } finally { _cloudLoad = null; }
+  })();
+  return _cloudLoad;
 }

@@ -353,11 +353,8 @@
   window.habitFlowUser = data.session.user;
 
   // Load cloud data after login
-  if (typeof loadHabitsFromCloud === "function") {
-    await loadHabitsFromCloud();
-await loadHabitCompletionsFromCloud();
-await loadTasksFromCloud();
-await loadSchedulesFromCloud();
+  if (typeof loadAllFromCloud === "function") {
+    await loadAllFromCloud();
   }
 
   authGate.remove();
@@ -387,9 +384,9 @@ await loadSchedulesFromCloud();
 
   await ensureProfile(session.user);
 
-  // Load cloud habits
-  if (typeof loadHabitsFromCloud === "function") {
-    await loadHabitsFromCloud();
+  // Load habits + completions + schedules through the shared loader
+  if (typeof loadAllFromCloud === "function") {
+    await loadAllFromCloud();
   }
 
   if (document.body.contains(authGate)) {
