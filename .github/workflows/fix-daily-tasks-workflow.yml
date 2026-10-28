@@ -1,0 +1,35 @@
+name: Fix Daily Tasks workflow
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fix invalid workflow expression
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/apply-daily-tasks-v2.yml')
+          s = p.read_text(encoding='utf-8')
+          bad = 's=s.replace(chr(36)+"{{habit:\'Habit\',schedule:\'Schedule\'}[t]}",chr(36)+"{{habit:\'Habit\',schedule:\'Schedule\',dailyTask:\'Daily Task\'}[t]}")'
+          # Replace the invalid GitHub expression-bearing source line with a version
+          # that constructs the literal string at Python runtime.
+          target = '          s=s.replace("${{habit:\'Habit\',schedule:\'Schedule\'}[t]}","${{habit:\'Habit\',schedule:\'Schedule\',dailyTask:\'Daily Task\'}[t]}",1)'
+          replacement = '          s=s.replace(chr(36)+"{{habit:\'Habit\',schedule:\'Schedule\'}[t]}",chr(36)+"{{habit:\'Habit\',schedule:\'Schedule\',dailyTask:\'Daily Task\'}[t]}",1)'
+          if target not in s:
+              raise SystemExit('Target workflow line not found; no change made.')
+          p.write_text(s.replace(target, replacement, 1), encoding='utf-8')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows/apply-daily-tasks-v2.yml
+          git commit -m 'Fix Daily Tasks workflow syntax'
+          git push
