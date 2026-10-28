@@ -1,0 +1,112 @@
+name: Apply Daily Tasks
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply Daily Tasks changes
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          root = Path('.')
+
+          def replace_once(path, old, new):
+              p = root / path
+              s = p.read_text(encoding='utf-8')
+              if new in s:
+                  return False
+              if old not in s:
+                  print(f'SKIP (anchor not found): {path}')
+                  return False
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+              print(f'PATCHED: {path}')
+              return True
+
+          # ---------------- index.html ----------------
+          p = root / 'index.html'
+          s = p.read_text(encoding='utf-8')
+          if 'dailyTasks:[]' not in s:
+              s = s.replace('habits:[],tasks:[],moods:', 'habits:[],tasks:[],dailyTasks:[],moods:', 1)
+          if 'if(!Array.isArray(s.dailyTasks))s.dailyTasks=[];' not in s:
+              s = s.replace("s.habits.forEach(h=>{if(!h.frequency)h.frequency='daily';if(!h.completions)h.completions={};});", "s.habits.forEach(h=>{if(!h.frequency)h.frequency='daily';if(!h.completions)h.completions={};});\n  if(!Array.isArray(s.dailyTasks))s.dailyTasks=[];\n  s.dailyTasks.forEach(t=>{if(!t.completions)t.completions={};if(t.active===undefined)t.active=true;});", 1)
+          s = s.replace('s.v=2;return s;', 's.v=3;return s;', 1)
+          daily_core = r'''\nfunction todaysDailyTasks(){\n  return (state.dailyTasks || []).filter(t => t.active !== false && todayKey() >= localKey(new Date(t.createdAt)));\n}\nfunction dailyTaskDone(task, k=todayKey()){\n  return task?.completions?.[k] === true;\n}\nfunction dailyTaskStats(k){\n  const tasks = (state.dailyTasks || []).filter(t => t.active !== false && k >= localKey(new Date(t.createdAt)));\n  const done = tasks.filter(t => dailyTaskDone(t,k)).length;\n  return {d:done,t:tasks.length,p:tasks.length?Math.round(done/tasks.length*100):null};\n}\nasync function toggleDailyTask(id,k=todayKey()){\n  const task=(state.dailyTasks||[]).find(t=>t.id===id);\n  if(!task || task.active===false) return;\n  task.completions=task.completions||{};\n  const prev=task.completions[k]===true;\n  task.completions[k]=!prev;\n  save();render();\n  const ok=await saveDailyTaskCompletionToCloud(task.id,k,!prev);\n  if(!ok){\n    task.completions[k]=prev;\n    save();render();\n    toast('Could not sync — change reverted');\n  }\n}\nasync function submitDailyTask(){\n  const input=document.getElementById('dtTitle');\n  const title=input?.value.trim();\n  if(!title)return;\n  const task={id:(crypto.randomUUID?crypto.randomUUID():uid()),title,active:true,createdAt:new Date().toISOString(),completions:{}};\n  state.dailyTasks.push(task);\n  save();closeModal();render();\n  const ok=await saveDailyTaskToCloud(task);\n  if(!ok){\n    state.dailyTasks=state.dailyTasks.filter(x=>x!==task);\n    save();render();\n  } else { save(); }\n}\nasync function delDailyTask(id){\n  const task=(state.dailyTasks||[]).find(t=>t.id===id);\n  if(!task)return;\n  if(!confirm(`Delete daily task "${task.title}"?`))return;\n  state.dailyTasks=state.dailyTasks.filter(t=>t.id!==id);\n  save();render();\n  const ok=await deleteDailyTaskFromCloud(id);\n  if(!ok){toast('Could not delete daily task from cloud');}\n}\n'''
+          if 'function todaysDailyTasks()' not in s:
+              anchor = "  return tracked?Math.round(done/tracked*100):0;\n}\n"
+              s = s.replace(anchor, anchor + daily_core, 1)
+          s = s.replace("['habit','schedule'].map", "['habit','schedule','dailyTask'].map", 1)
+          s = s.replace("${{habit:'Habit',schedule:'Schedule'}[t]}", "${{habit:'Habit',schedule:'Schedule',dailyTask:'Daily Task'}[t]}", 1)
+          if "else if(t==='dailyTask')" not in s:
+              s = s.replace("  if(t==='schedule'){area.innerHTML=schedForm();durHint();}\n", "  if(t==='schedule'){area.innerHTML=schedForm();durHint();}\n  else if(t==='dailyTask'){\n    area.innerHTML=`<h2>New daily task</h2>\n    <div class=\"field\"><label>Task</label><input id=\"dtTitle\" placeholder=\"e.g. Drink 2L of water\"></div>\n    <p class=\"meta\">This task appears every day and contributes to your daily and weekly completion.</p>\n    <div class=\"modalfoot\"><button class=\"btn ghost\" onclick=\"closeModal()\">Cancel</button><button class=\"btn\" onclick=\"submitDailyTask()\">Add daily task</button></div>`;\n  }\n", 1)
+          p.write_text(s, encoding='utf-8')
+
+          # ---------------- views.js ----------------
+          p = root / 'views.js'
+          s = p.read_text(encoding='utf-8')
+          old = "function dayPct(k){let d=0,t=0;state.habits.forEach(h=>{const f=parseHabitFrequency(h.frequency);if(f.type==='times_per_week'||f.type==='times_per_month')return;const s=cellState(h,k);if(s==='done'){d++;t++;}else if(s==='missed'||s==='today'){t++;}});return{d,t,p:t?Math.round(d/t*100):null};}"
+          new = "function dayPct(k){let d=0,t=0;state.habits.forEach(h=>{const f=parseHabitFrequency(h.frequency);if(f.type==='times_per_week'||f.type==='times_per_month')return;const s=cellState(h,k);if(s==='done'){d++;t++;}else if(s==='missed'||s==='today'){t++;}});const dt=dailyTaskStats(k);d+=dt.d;t+=dt.t;return{d,t,p:t?Math.round(d/t*100):null};}"
+          s = s.replace(old, new, 1)
+          daily_views = r'''\nfunction dailyTaskRow(t){\n  const done=dailyTaskDone(t);\n  return `<div class="hrow">\n    <button class="hcheck ${done?'done':''}" aria-pressed="${done}" aria-label="${done?'Mark '+esc(t.title)+' not done':'Mark '+esc(t.title)+' done'}" onclick="toggleDailyTask('${t.id}')">${done?'✓':''}</button>\n    <button class="hmain" onclick="toggleDailyTask('${t.id}')">\n      <span class="hicon">✓</span>\n      <span class="hname ${done?'strike':''}">${esc(t.title)}<small>Daily task</small></span>\n    </button>\n    <button class="rowdel" aria-label="Delete ${esc(t.title)}" title="Delete daily task" onclick="delDailyTask('${t.id}')">🗑</button>\n  </div>`;\n}\nfunction dailyWeekStats(k=todayKey()){\n  const keys=weekKeys(k);\n  let d=0,t=0;\n  keys.filter(x=>x<=todayKey()).forEach(x=>{\n    const s=dailyTaskStats(x);\n    d+=s.d;t+=s.t;\n  });\n  return {d,t,p:t?Math.round(d/t*100):0};\n}\n\n'''
+          if 'function dailyTaskRow(t)' not in s:
+              s = s.replace('/* ---- TODAY ---- */', daily_views + '/* ---- TODAY ---- */', 1)
+          old = "function renderToday(){\n  const t=todayKey(),H=state.habits,sx=schedProgress(),doneH=H.filter(h=>h.completions[t]==='done').length,total=H.length+sx.t,done=doneH+sx.d,pct=total?Math.round(done/total*100):0;"
+          new = "function renderToday(){\n  const t=todayKey(),H=state.habits,sx=schedProgress(),doneH=H.filter(h=>h.completions[t]==='done').length;\n  const dt=dailyTaskStats(t),total=H.length+dt.t+sx.t,done=doneH+dt.d+sx.d,pct=total?Math.round(done/total*100):0;"
+          s = s.replace(old, new, 1)
+          s = s.replace("  const items=itemsFor(t).sort((a,b)=>slot(a,t).s-slot(b,t).s),n=now(),best=Math.max(0,...H.map(streakFor));\n", "  const items=itemsFor(t).sort((a,b)=>slot(a,t).s-slot(b,t).s),n=now(),best=Math.max(0,...H.map(streakFor));\n  const dailyTasks=todaysDailyTasks();\n", 1)
+          if '<div class="section-title">Daily tasks</div>' not in s:
+              block = '''    <div>\n      <div class="section-title">Daily tasks</div>\n      ${dailyTasks.length?`<div class="card list">${dailyTasks.map(dailyTaskRow).join('')}</div>`:empty('Add small tasks you want to complete every day.',`<button class="btn" onclick="openModal('dailyTask')">+ Add Daily Task</button>`)}\n    </div>\n'''
+              s = s.replace("    </div>\n  </div>`;\n  html+=`<div><div class=\"section-title\">Today's schedule", "    </div>\n" + block + "  </div>`;\n  html+=`<div><div class=\"section-title\">Today's schedule", 1)
+          old = "function monthSummary(H,ks){let done=0,total=0;H.forEach(h=>{const s=habitMonthStats(h,ks);done+=Math.min(s.d,s.t);total+=s.t;});return{done,total,p:total?Math.round(done/total*100):0};}"
+          new = "function monthSummary(H,ks){let done=0,total=0;H.forEach(h=>{const s=habitMonthStats(h,ks);done+=Math.min(s.d,s.t);total+=s.t;});ks.forEach(k=>{const s=dailyTaskStats(k);done+=s.d;total+=s.t;});return{done,total,p:total?Math.round(done/total*100):0};}"
+          s = s.replace(old, new, 1)
+          old = "const n=now(),y=n.getFullYear(),m=n.getMonth(),mk=monthKeys(y,m).filter(k=>k<=todayKey());let d=0,t=0;H.forEach(h=>{const s=statsFor(h,mk);d+=s.d;t+=s.t;});const mp=t?Math.round(d/t*100):0;"
+          new = "const n=now(),y=n.getFullYear(),m=n.getMonth(),mk=monthKeys(y,m).filter(k=>k<=todayKey());let d=0,t=0;H.forEach(h=>{const s=statsFor(h,mk);d+=s.d;t+=s.t;});mk.forEach(k=>{const s=dailyTaskStats(k);d+=s.d;t+=s.t;});const mp=t?Math.round(d/t*100):0;const ws=dailyWeekStats(todayKey());let weekD=ws.d,weekT=ws.t;const wk=weekKeys(todayKey()).filter(k=>k<=todayKey());H.forEach(h=>{const s=statsFor(h,wk);weekD+=s.d;weekT+=s.t;});const wp=weekT?Math.round(weekD/weekT*100):0;"
+          s = s.replace(old, new, 1)
+          # Preserve the existing progress layout; the daily tasks are included in its trend/month calculations.
+          p.write_text(s, encoding='utf-8')
+
+          # ---------------- cloud-sync.js ----------------
+          p = root / 'cloud-sync.js'
+          s = p.read_text(encoding='utf-8')
+          marker = '// ===============================\n// SCHEDULE CLOUD SYNC\n// ==============================='
+          daily_cloud = r'''// ===============================\n// DAILY TASK CLOUD SYNC\n// ===============================\n\nasync function saveDailyTaskToCloud(task) {\n  let user = await getCurrentUser();\n  if (!user) {\n    const sessionResult = await supabaseClient.auth.getSession();\n    user = sessionResult?.data?.session?.user || null;\n  }\n  if (!user) {\n    console.error("Could not save daily task: no authenticated user");\n    if (typeof toast === "function") toast("Not signed in. Please sign in again.");\n    return false;\n  }\n  if (!task.id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(task.id)) {\n    task.id = crypto.randomUUID ? crypto.randomUUID() : task.id;\n  }\n  const { error } = await supabaseClient\n    .from("daily_tasks")\n    .insert({id:task.id,user_id:user.id,title:task.title,active:task.active!==false,created_at:task.createdAt||new Date().toISOString()});\n  if (error) {\n    console.error("Could not save daily task:", error);\n    const detail=[error.code,error.message,error.details,error.hint].filter(Boolean).join(" | ");\n    console.error("Daily task Supabase error details:",{message:error.message,details:error.details,hint:error.hint,code:error.code,userId:user.id,taskId:task.id});\n    if (typeof toast === "function") toast("Daily Task save failed: " + (detail || "Unknown Supabase error"));\n    return false;\n  }\n  return true;\n}\n\nasync function saveDailyTaskCompletionToCloud(taskId,date,completed) {\n  const user=await getCurrentUser();\n  if(!user)return false;\n  const {error}=await supabaseClient.from("daily_task_completions").upsert({user_id:user.id,daily_task_id:taskId,completion_date:date,completed:!!completed,completed_at:completed?new Date().toISOString():null},{onConflict:"daily_task_id,completion_date"});\n  if(error){console.error("Could not save daily task completion:",error);return false;}\n  return true;\n}\n\nasync function loadDailyTasksFromCloud() {\n  const user=await getCurrentUser();\n  if(!user)return;\n  const {data:tasks,error:taskError}=await supabaseClient.from("daily_tasks").select("*").eq("user_id",user.id).order("created_at",{ascending:true});\n  if(taskError){console.error("Could not load daily tasks:",taskError);return;}\n  const {data:completions,error:compError}=await supabaseClient.from("daily_task_completions").select("*").eq("user_id",user.id);\n  if(compError){console.error("Could not load daily task completions:",compError);return;}\n  const byId=new Map();\n  for(const c of completions||[]){if(!byId.has(c.daily_task_id))byId.set(c.daily_task_id,{});byId.get(c.daily_task_id)[c.completion_date]=!!c.completed;}\n  state.dailyTasks=(tasks||[]).map(t=>({id:t.id,title:t.title,active:t.active!==false,createdAt:t.created_at,completions:byId.get(t.id)||{}}));\n}\n\nasync function deleteDailyTaskFromCloud(taskId) {\n  const user=await getCurrentUser();\n  if(!user)return false;\n  const {error}=await supabaseClient.from("daily_tasks").delete().eq("id",taskId).eq("user_id",user.id);\n  if(error){console.error("Could not delete daily task:",error);return false;}\n  return true;\n}\n\n'''
+          if 'async function saveDailyTaskToCloud' not in s:
+              s = s.replace(marker, daily_cloud + marker, 1)
+          else:
+              start=s.index('async function saveDailyTaskToCloud')
+              end=s.index(marker,start)
+              s=s[:start]+daily_cloud+s[end:]
+          if 'await loadDailyTasksFromCloud();' not in s:
+              s=s.replace('      await loadTasksFromCloud();\n', '      await loadTasksFromCloud();\n      await loadDailyTasksFromCloud();\n', 1)
+          p.write_text(s, encoding='utf-8')
+
+          # ---------------- Supabase migration ----------------
+          mig = root / 'supabase/migrations/20261028_daily_tasks.sql'
+          mig.parent.mkdir(parents=True, exist_ok=True)
+          mig.write_text('''-- Habit Flow 1.1.0: Daily Tasks\n-- Safe/idempotent migration for existing Habit Flow databases.\n\ncreate table if not exists public.daily_tasks (\n  id uuid primary key default gen_random_uuid(),\n  user_id uuid references auth.users(id) on delete cascade,\n  title text not null,\n  active boolean not null default true,\n  created_at timestamptz not null default now()\n);\n\nalter table public.daily_tasks add column if not exists user_id uuid;\nalter table public.daily_tasks add column if not exists title text;\nalter table public.daily_tasks add column if not exists active boolean not null default true;\nalter table public.daily_tasks add column if not exists created_at timestamptz not null default now();\n\ncreate table if not exists public.daily_task_completions (\n  id uuid primary key default gen_random_uuid(),\n  user_id uuid references auth.users(id) on delete cascade,\n  daily_task_id uuid not null references public.daily_tasks(id) on delete cascade,\n  completion_date date not null,\n  completed boolean not null default false,\n  completed_at timestamptz,\n  unique (daily_task_id, completion_date)\n);\n\nalter table public.daily_task_completions add column if not exists user_id uuid;\nalter table public.daily_task_completions add column if not exists daily_task_id uuid;\nalter table public.daily_task_completions add column if not exists completion_date date;\nalter table public.daily_task_completions add column if not exists completed boolean not null default false;\nalter table public.daily_task_completions add column if not exists completed_at timestamptz;\n\ncreate index if not exists daily_tasks_user_id_idx on public.daily_tasks(user_id);\ncreate index if not exists daily_task_completions_user_id_idx on public.daily_task_completions(user_id);\ncreate index if not exists daily_task_completions_task_date_idx on public.daily_task_completions(daily_task_id,completion_date);\n\nalter table public.daily_tasks enable row level security;\nalter table public.daily_task_completions enable row level security;\n\ndrop policy if exists "Users can manage their daily tasks" on public.daily_tasks;\ncreate policy "Users can manage their daily tasks" on public.daily_tasks for all using (auth.uid()=user_id) with check (auth.uid()=user_id);\n\ndrop policy if exists "Users can manage their daily task completions" on public.daily_task_completions;\ncreate policy "Users can manage their daily task completions" on public.daily_task_completions for all using (auth.uid()=user_id) with check (auth.uid()=user_id);\n\ngrant select,insert,update,delete on public.daily_tasks to authenticated;\ngrant select,insert,update,delete on public.daily_task_completions to authenticated;\nnotify pgrst, 'reload schema';\n''',encoding='utf-8')
+          PY
+
+      - name: Commit Daily Tasks changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html views.js cloud-sync.js supabase/migrations/20261028_daily_tasks.sql
+          if git diff --cached --quiet; then
+            echo "No Daily Tasks changes to commit."
+          else
+            git commit -m "Add Daily Tasks with Supabase sync [skip ci]"
+            git push
+          fi
