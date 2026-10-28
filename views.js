@@ -52,7 +52,7 @@ function statsFor(h,keys){
 }
 function bestStreak(h){let best=0,run=0;const d=new Date(createdKey(h)+'T00:00:00'),end=todayKey();for(;localKey(d)<=end;d.setDate(d.getDate()+1)){const k=localKey(d),s=h.completions[k],f=parseHabitFrequency(h.frequency);if(s==='done'){run++;best=Math.max(best,run);}else if(s==='skip'||(f.type==='specific_days'&&!isFixedScheduled(h,k))){}else if(f.type==='times_per_week'||f.type==='times_per_month'){}else run=0;}return best;}
 const totalDone=h=>Object.values(h.completions||{}).filter(v=>v==='done').length;
-function dayPct(k){let d=0,t=0;state.habits.forEach(h=>{const f=parseHabitFrequency(h.frequency);if(f.type==='times_per_week'||f.type==='times_per_month')return;const s=cellState(h,k);if(s==='done'){d++;t++;}else if(s==='missed'||s==='today'){t++;}});return{d,t,p:t?Math.round(d/t*100):null};}
+function dayPct(k){let d=0,t=0;state.habits.forEach(h=>{const f=parseHabitFrequency(h.frequency);if(f.type==='times_per_week'||f.type==='times_per_month')return;const s=cellState(h,k);if(s==='done'){d++;t++;}else if(s==='missed'||s==='today'){t++;}});const dt=dailyTaskStats(k);d+=dt.d;t+=dt.t;return{d,t,p:t?Math.round(d/t*100):null};}
 const filtered=()=>state.habits.filter(h=>habitFilter==='All'||h.category===habitFilter);
 function weeklyProgressRows(H,k){return H.map(h=>{const s=weekStats(h,k);return{h,goal:s.goal,got:s.got,p:s.goal?Math.min(100,Math.round(s.got/s.goal*100)):0};});}
 
@@ -123,21 +123,55 @@ function openHowToUse(){
   modal(`<div class="howto-modal"><div class="modal-head"><div><div class="eyebrow">HABIT FLOW GUIDE</div><h2>How to Use Habit Flow</h2><p class="sub">Build your routine. Protect your time. Stay consistent.</p></div><button class="iconbtn" onclick="closeModal()" aria-label="Close guide">×</button></div><div class="guide-quick"><b>New here? Start with these 5 steps</b><span>1. Create habits</span><span>2. Add your schedule</span><span>3. Enable notifications</span><span>4. Check Today</span><span>5. Track and review</span></div><div class="guide-content">${body}</div><div class="modalfoot"><button class="btn" onclick="closeModal()">Got it</button></div></div>`);
 }
 
+
+function dailyTaskRow(t){
+  const done=dailyTaskDone(t);
+  return `<div class="hrow">
+    <button class="hcheck ${done?'done':''}" aria-pressed="${done}" aria-label="${done?'Mark '+esc(t.title)+' not done':'Mark '+esc(t.title)+' done'}" onclick="toggleDailyTask('${t.id}')">${done?'✓':''}</button>
+    <button class="hmain" onclick="toggleDailyTask('${t.id}')">
+      <span class="hicon">✓</span>
+      <span class="hname ${done?'strike':''}">${esc(t.title)}<small>Daily task</small></span>
+    </button>
+    <button class="rowdel" aria-label="Delete ${esc(t.title)}" title="Delete daily task" onclick="delDailyTask('${t.id}')">🗑</button>
+  </div>`;
+}
+function dailyWeekStats(k=todayKey()){
+  const keys=weekKeys(k);
+  let d=0,t=0;
+  keys.filter(x=>x<=todayKey()).forEach(x=>{
+    const s=dailyTaskStats(x);
+    d+=s.d;t+=s.t;
+  });
+  return {d,t,p:t?Math.round(d/t*100):0};
+}
+
 /* ---- TODAY ---- */
 function renderToday(){
-  const t=todayKey(),H=state.habits,sx=schedProgress(),doneH=H.filter(h=>h.completions[t]==='done').length,total=H.length+sx.t,done=doneH+sx.d,pct=total?Math.round(done/total*100):0;
+  const t=todayKey(),H=state.habits,sx=schedProgress(),doneH=H.filter(h=>h.completions[t]==='done').length;
+  const dt=dailyTaskStats(t),total=H.length+dt.t+sx.t,done=doneH+dt.d+sx.d,pct=total?Math.round(done/total*100):0;
   const items=itemsFor(t).sort((a,b)=>slot(a,t).s-slot(b,t).s),n=now(),best=Math.max(0,...H.map(streakFor));
+  const dailyTasks=todaysDailyTasks();
   let html=pageTop(greeting()+', '+esc(state.name),fmtLong(t),bellBtn());
   html+=total?`<div class="card hero"><div class="today-ring">${ring(pct,132,'today')}</div><div class="hero-t"><b>${done} / ${total}</b> completed${best?`<div class="chip">🔥 ${best} day streak</div>`:''}</div></div>`:empty('Nothing planned yet. Build your first habit.',`<button class="btn" onclick="openModal('habit')">+ Create Habit</button>`);
   html+=`<button class="howto-card" onclick="openHowToUse()" aria-label="Open How to Use Habit Flow guide"><span class="howto-icon">📖</span><span class="howto-copy"><b>How to Use Habit Flow</b><small>Learn how to plan, build habits, use reminders, and stay consistent.</small></span><span class="howto-arrow">→</span></button>`;
-  html+=`<div class="cols"><div><div class="section-title">Today's habits</div>${H.length?`<div class="card list">${H.map(h=>habitRow(h,true)).join('')}</div>`:empty('No habits yet.')}</div><div><div class="section-title">Today's schedule</div>${items.length?`<div class="card list">${items.slice(0,8).map(it=>{const s=getScheduleStatus(it,t,n);return `<div class="srow"><span class="stime">${fmtT(slot(it,t).s)}</span><span class="hname">${esc(it.title)}</span><span class="tag t-${s}">${STL[s]||s}</span></div>`;}).join('')}<button class="link" onclick="page='schedule';render()">Open schedule →</button></div>`:empty('Plan your day.',`<button class="btn" onclick="openModal('schedule')">+ Add Schedule</button>`)}</div></div>`;
+  html+=`<div class="cols">
+    <div>
+      <div class="section-title">Today's habits</div>
+      ${H.length?`<div class="card list">${H.map(h=>habitRow(h,true)).join('')}</div>`:empty('No habits yet.')}
+    </div>
+    <div>
+      <div class="section-title">Daily tasks</div>
+      ${dailyTasks.length?`<div class="card list">${dailyTasks.map(dailyTaskRow).join('')}</div>`:empty('Add small tasks you want to complete every day.',`<button class="btn" onclick="openModal('dailyTask')">+ Add Daily Task</button>`)}
+    </div>
+  </div>`;
+  html+=`<div><div class="section-title">Today's schedule</div>${items.length?`<div class="card list">${items.slice(0,8).map(it=>{const s=getScheduleStatus(it,t,n);return `<div class="srow"><span class="stime">${fmtT(slot(it,t).s)}</span><span class="hname">${esc(it.title)}</span><span class="tag t-${s}">${STL[s]||s}</span></div>`;}).join('')}<button class="link" onclick="page='schedule';render()">Open schedule →</button></div>`:empty('Plan your day.',`<button class="btn" onclick="openModal('schedule')">+ Add Schedule</button>`)}</div>`;
   return html;
 }
 
 /* ---- HABIT COMMAND CENTER ---- */
 function monthGoalKeys(h,y,m){return monthKeys(y,m).filter(k=>k<=todayKey()||y<now().getFullYear()||(y===now().getFullYear()&&m<now().getMonth())).filter(k=>k>=createdKey(h));}
 function habitMonthStats(h,keys){return statsFor(h,keys);}
-function monthSummary(H,ks){let done=0,total=0;H.forEach(h=>{const s=habitMonthStats(h,ks);done+=Math.min(s.d,s.t);total+=s.t;});return{done,total,p:total?Math.round(done/total*100):0};}
+function monthSummary(H,ks){let done=0,total=0;H.forEach(h=>{const s=habitMonthStats(h,ks);done+=Math.min(s.d,s.t);total+=s.t;});ks.forEach(k=>{const s=dailyTaskStats(k);done+=s.d;total+=s.t;});return{done,total,p:total?Math.round(done/total*100):0};}
 function weekGroups(ks){const groups=[];let current=null;const firstDay=ks.length?new Date(ks[0]+'T00:00:00').getDay():0;ks.forEach((k,i)=>{const week=Math.floor((firstDay+i)/7);if(current!==week){current=week;groups.push([]);}groups[groups.length-1].push(k);});return groups;}
 function monthGrid(H,ks){
   const groups=weekGroups(ks);
@@ -188,11 +222,11 @@ function renderHabits(){
 function trendSvg(v){const W=600,H=170,L=30,B=22,n=v.length,x=i=>L+(W-L-8)*i/(n-1||1),y=p=>8+(H-8-B)*(1-p/100);const pts=v.map((p,i)=>p==null?null:[x(i),y(p)]).filter(Boolean),d=pts.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join('');const lab=[0,Math.floor(n/2),n-1].map(i=>`<text x="${x(i)}" y="${H-4}" text-anchor="middle">${shortDate(lastKeys(n)[i])}</text>`).join('');return `<svg class="trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily completion, last ${n} days">${[0,50,100].map(g=>`<line x1="${L}" x2="${W-8}" y1="${y(g)}" y2="${y(g)}"/><text x="${L-6}" y="${y(g)+4}" text-anchor="end">${g}</text>`).join('')}${pts.length>1?`<path class="tl" d="${d}"/>`:''}${pts.map(q=>`<circle cx="${q[0]}" cy="${q[1]}" r="3"/>`).join('')}${lab}</svg>`;}
 function renderProgress(){
   const H=state.habits,head=pageTop('Progress','Long-term performance');if(!H.length)return head+empty('Add habits to see your long-term progress.',`<button class="btn" onclick="openModal('habit')">+ Create Habit</button>`);
-  const n=now(),y=n.getFullYear(),m=n.getMonth(),mk=monthKeys(y,m).filter(k=>k<=todayKey());let d=0,t=0;H.forEach(h=>{const s=statsFor(h,mk);d+=s.d;t+=s.t;});const mp=t?Math.round(d/t*100):0;
+  const n=now(),y=n.getFullYear(),m=n.getMonth(),mk=monthKeys(y,m).filter(k=>k<=todayKey());let d=0,t=0;H.forEach(h=>{const s=statsFor(h,mk);d+=s.d;t+=s.t;});mk.forEach(k=>{const s=dailyTaskStats(k);d+=s.d;t+=s.t;});const mp=t?Math.round(d/t*100):0;const ws=dailyWeekStats(todayKey());let weekD=ws.d,weekT=ws.t;const wk=weekKeys(todayKey()).filter(k=>k<=todayKey());H.forEach(h=>{const s=statsFor(h,wk);weekD+=s.d;weekT+=s.t;});const wp=weekT?Math.round(weekD/weekT*100):0;
   const wd=[0,0,0,0,0,0,0].map(()=>({d:0,t:0}));lastKeys(84).forEach(k=>{const s=dayPct(k),i=new Date(k+'T00:00:00').getDay();wd[i].d+=s.d;wd[i].t+=s.t;});const order=[1,2,3,4,5,6,0],dn=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   const months=[5,4,3,2,1,0].map(o=>{const dt=new Date(y,m-o,1),ks=monthKeys(dt.getFullYear(),dt.getMonth()).filter(k=>k<=todayKey());let a=0,b=0;H.forEach(h=>{const s=statsFor(h,ks);a+=s.d;b+=s.t;});return{l:dt.toLocaleDateString(undefined,{month:'short'}),p:b?Math.round(a/b*100):0};});
   const perf=H.map(h=>({l:esc(icon(h))+' '+esc(h.name),p:statsFor(h,lastKeys(30)).p})).sort((a,b)=>b.p-a.p);
-  return head+`<div class="card hero"><div class="today-ring">${ring(mp,132,'this month')}</div><div class="hero-t"><b>${d} / ${t}</b> habit-days completed</div></div><div class="stats">${stat(Math.max(0,...H.map(streakFor)),'Current streak')}${stat(Math.max(0,...H.map(bestStreak)),'Best streak')}${stat(H.reduce((a,h)=>a+totalDone(h),0),'Total completed')}${stat(H.length,'Active habits')}</div><div class="card"><h2>Completion trend · 30 days</h2>${trendSvg(lastKeys(30).map(k=>dayPct(k).p))}</div><div class="cols"><div class="card"><h2>Habit performance · 30 days</h2>${bars(perf)}</div><div class="card"><h2>Weekly pattern · 12 weeks</h2>${bars(order.map(i=>({l:dn[i],p:wd[i].t?Math.round(wd[i].d/wd[i].t*100):0})))}</div></div><div class="cols"><div class="card"><h2>Monthly performance</h2>${bars(months)}</div><div class="card"><h2>Goal vs actual · ${monthLbl(y,m)}</h2>${goalRows(H,y,m).map(r=>`<div class="goal"><span>${esc(icon(r.h))} ${esc(r.h.name)}</span><span>${r.got} / ${r.goal} days</span><b>${r.p}%</b></div>`).join('')}</div></div>`;
+  return head+`<div class="cols"><div class="card hero"><div class="today-ring">${ring(wp,132,'this week')}</div><div class="hero-t"><b>${weekD} / ${weekT}</b> completed this week</div></div><div class="card hero"><div class="today-ring">${ring(mp,132,'this month')}</div><div class="hero-t"><b>${d} / ${t}</b> completed this month</div></div></div><div class="stats">${stat(Math.max(0,...H.map(streakFor)),'Current streak')}${stat(Math.max(0,...H.map(bestStreak)),'Best streak')}${stat(H.reduce((a,h)=>a+totalDone(h),0),'Total completed')}${stat(H.length,'Active habits')}</div><div class="card"><h2>Completion trend · 30 days</h2>${trendSvg(lastKeys(30).map(k=>dayPct(k).p))}</div><div class="cols"><div class="card"><h2>Habit performance · 30 days</h2>${bars(perf)}</div><div class="card"><h2>Weekly pattern · 12 weeks</h2>${bars(order.map(i=>({l:dn[i],p:wd[i].t?Math.round(wd[i].d/wd[i].t*100):0})))}</div></div><div class="cols"><div class="card"><h2>Monthly performance</h2>${bars(months)}</div><div class="card"><h2>Goal vs actual · ${monthLbl(y,m)}</h2>${goalRows(H,y,m).map(r=>`<div class="goal"><span>${esc(icon(r.h))} ${esc(r.h.name)}</span><span>${r.got} / ${r.goal} days</span><b>${r.p}%</b></div>`).join('')}</div></div>`;
 }
 
 /* ---- SETTINGS ---- */

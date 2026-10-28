@@ -404,6 +404,118 @@ async function deleteTaskFromCloud(taskId) {
   return true;
 }
 
+
+// ===============================
+// DAILY TASK CLOUD SYNC
+// ===============================
+
+async function saveDailyTaskToCloud(task) {
+  let user = await getCurrentUser();
+  if (!user) {
+    const sessionResult = await supabaseClient.auth.getSession();
+    user = sessionResult?.data?.session?.user || null;
+  }
+  if (!user) {
+    console.error("Could not save daily task: no authenticated user");
+    if (typeof toast === "function") toast("Not signed in. Please sign in again.");
+    return false;
+  }
+
+  // Daily tasks use a UUID generated in the app. This avoids relying on
+  // INSERT ... SELECT ... after the insert, which can fail under RLS.
+  if (!task.id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(task.id)) {
+    task.id = crypto.randomUUID ? crypto.randomUUID() : task.id;
+  }
+
+  const { error } = await supabaseClient
+    .from("daily_tasks")
+    .insert({
+      id: task.id,
+      user_id: user.id,
+      title: task.title,
+      active: task.active !== false,
+      created_at: task.createdAt || new Date().toISOString()
+    });
+
+  if (error) {
+    console.error("Could not save daily task:", error);
+    const detail = [error.code, error.message, error.details, error.hint].filter(Boolean).join(" | ");
+    console.error("Daily task Supabase error details:", { message:error.message, details:error.details, hint:error.hint, code:error.code, userId:user.id, taskId:task.id });
+    if (typeof toast === "function") toast("Daily Task save failed: " + (detail || "Unknown Supabase error"));
+    return false;
+  }
+
+  return true;
+}
+
+async function saveDailyTaskCompletionToCloud(taskId, date, completed) {
+  const user = await getCurrentUser();
+  if (!user) return false;
+  const { error } = await supabaseClient
+    .from("daily_task_completions")
+    .upsert({
+      user_id: user.id,
+      daily_task_id: taskId,
+      completion_date: date,
+      completed: !!completed,
+      completed_at: completed ? new Date().toISOString() : null
+    }, { onConflict: "daily_task_id,completion_date" });
+  if (error) {
+    console.error("Could not save daily task completion:", error);
+    return false;
+  }
+  return true;
+}
+
+async function loadDailyTasksFromCloud() {
+  const user = await getCurrentUser();
+  if (!user) return;
+  const { data: tasks, error: taskError } = await supabaseClient
+    .from("daily_tasks")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true });
+  if (taskError) {
+    console.error("Could not load daily tasks:", taskError);
+    return;
+  }
+  const { data: completions, error: compError } = await supabaseClient
+    .from("daily_task_completions")
+    .select("*")
+    .eq("user_id", user.id);
+  if (compError) {
+    console.error("Could not load daily task completions:", compError);
+    return;
+  }
+  const byId = new Map();
+  for (const c of completions || []) {
+    if (!byId.has(c.daily_task_id)) byId.set(c.daily_task_id, {});
+    byId.get(c.daily_task_id)[c.completion_date] = !!c.completed;
+  }
+  state.dailyTasks = (tasks || []).map(t => ({
+    id: t.id,
+    title: t.title,
+    active: t.active !== false,
+    createdAt: t.created_at,
+    completions: byId.get(t.id) || {}
+  }));
+}
+
+async function deleteDailyTaskFromCloud(taskId) {
+  const user = await getCurrentUser();
+  if (!user) return false;
+  const { error } = await supabaseClient
+    .from("daily_tasks")
+    .delete()
+    .eq("id", taskId)
+    .eq("user_id", user.id);
+  if (error) {
+    console.error("Could not delete daily task:", error);
+    return false;
+  }
+  return true;
+}
+
 // ===============================
 // SCHEDULE CLOUD SYNC
 // ===============================
@@ -890,6 +1002,7 @@ function loadAllFromCloud() {
       await loadHabitsFromCloud();
       await loadHabitCompletionsFromCloud();
       await loadTasksFromCloud();
+      await loadDailyTasksFromCloud();
       await loadSchedulesFromCloud();
       save();
       render();

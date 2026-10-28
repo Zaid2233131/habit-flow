@@ -1,6 +1,6 @@
 {
   "name": "habit-flow",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Habit Flow - Personal habit and daily productivity tracker",
   "main": "electron-main.js",
   "scripts": {

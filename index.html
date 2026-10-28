@@ -325,7 +325,7 @@ document.querySelectorAll('.navitem,.bnitem').forEach(el=>{
 
 const KEY='habitflow-data-v2',OLD_KEY='habitflow-data-v1'; // v1 is left untouched as a backup
 const CATS=['Health','Fitness','Study','Work','Personal','Other'];
-function defaultState(){return{v:2,name:'there',theme:'system',habits:[],tasks:[],moods:{},schedules:[],notifications:[],reminderLogs:[],settings:{notificationsEnabled:false,mode:'alarm',sound:'default',taskRem:true,habitRem:true,routineRem:true,overdueRem:true,uncompletedHabitReminders:true,habitReminderMax:6,habitReminderStart:'09:00',habitReminderEnd:'22:00',habitReminderPlan:{date:null,slots:[],sent:[],lastHabitId:null},serverHabitRemindersReady:false,quiet:{enabled:false,start:'23:00',end:'06:00'},simOffset:0}};}
+function defaultState(){return{v:3,name:'there',theme:'system',habits:[],tasks:[],dailyTasks:[],moods:{},schedules:[],notifications:[],reminderLogs:[],settings:{notificationsEnabled:false,mode:'alarm',sound:'default',taskRem:true,habitRem:true,routineRem:true,overdueRem:true,uncompletedHabitReminders:true,habitReminderMax:6,habitReminderStart:'09:00',habitReminderEnd:'22:00',habitReminderPlan:{date:null,slots:[],sent:[],lastHabitId:null},serverHabitRemindersReady:false,quiet:{enabled:false,start:'23:00',end:'06:00'},simOffset:0}};}
 function load(){try{const raw=localStorage.getItem(KEY)||localStorage.getItem(OLD_KEY);return migrateV1ToV2(raw?JSON.parse(raw):{});}catch(e){return defaultState();}}
 function save(){localStorage.setItem(KEY,JSON.stringify(state));}
 /* ===== v2: date/time utils (local timezone, never UTC) ===== */
@@ -370,7 +370,9 @@ function migrateV1ToV2(o){
   ['schedules','notifications','reminderLogs'].forEach(k=>{if(!Array.isArray(s[k]))s[k]=[];});
   if(!Array.isArray(s.habits))s.habits=[];
   s.habits.forEach(h=>{if(!h.frequency)h.frequency='daily';if(!h.completions)h.completions={};});
-  s.v=2;return s; // habits/tasks/moods pass through untouched
+  if(!Array.isArray(s.dailyTasks))s.dailyTasks=[];
+  s.dailyTasks.forEach(t=>{if(!t.completions)t.completions={};if(t.active===undefined)t.active=true;});
+  s.v=3;return s; // habits/tasks/moods pass through untouched
 }
 let state=load();
 applyTheme();
@@ -410,6 +412,57 @@ function rate30(h){
   }
   return tracked?Math.round(done/tracked*100):0;
 }
+
+function todaysDailyTasks(){
+  return (state.dailyTasks || []).filter(t => t.active !== false && todayKey() >= localKey(new Date(t.createdAt)));
+}
+function dailyTaskDone(task, k=todayKey()){
+  return task?.completions?.[k] === true;
+}
+function dailyTaskStats(k){
+  const tasks = (state.dailyTasks || []).filter(t => t.active !== false && k >= localKey(new Date(t.createdAt)));
+  const done = tasks.filter(t => dailyTaskDone(t,k)).length;
+  return {d:done,t:tasks.length,p:tasks.length?Math.round(done/tasks.length*100):null};
+}
+async function toggleDailyTask(id,k=todayKey()){
+  const task=(state.dailyTasks||[]).find(t=>t.id===id);
+  if(!task || task.active===false) return;
+  task.completions=task.completions||{};
+  const prev=task.completions[k]===true;
+  task.completions[k]=!prev;
+  save();render();
+  const ok=await saveDailyTaskCompletionToCloud(task.id,k,!prev);
+  if(!ok){
+    task.completions[k]=prev;
+    save();render();
+    toast('Could not sync — change reverted');
+  }
+}
+async function submitDailyTask(){
+  const input=document.getElementById('dtTitle');
+  const title=input?.value.trim();
+  if(!title)return;
+  const task={id:(crypto.randomUUID?crypto.randomUUID():uid()),title,active:true,createdAt:new Date().toISOString(),completions:{}};
+  state.dailyTasks.push(task);
+  save();closeModal();render();
+  const ok=await saveDailyTaskToCloud(task);
+  if(!ok){
+    state.dailyTasks=state.dailyTasks.filter(x=>x!==task);
+    save();render();
+    // saveDailyTaskToCloud already reports the exact Supabase error.
+    // Do not overwrite it with the old generic connection message.
+  } else { save(); }
+}
+async function delDailyTask(id){
+  const task=(state.dailyTasks||[]).find(t=>t.id===id);
+  if(!task)return;
+  if(!confirm(`Delete daily task "${task.title}"?`))return;
+  state.dailyTasks=state.dailyTasks.filter(t=>t.id!==id);
+  save();render();
+  const ok=await deleteDailyTaskFromCloud(id);
+  if(!ok){toast('Could not delete daily task from cloud');}
+}
+
 async function toggleTask(id){
   const task = state.tasks.find(x => x.id === id);
 
@@ -491,7 +544,7 @@ function render(){
 document.querySelectorAll('.navitem,.bnitem').forEach(el=>el.addEventListener('click',()=>{page=el.dataset.page;schedScrolled=false;render();}));
 
 function openModal(type){
-  document.getElementById('modalBody').innerHTML=`<div class="seg">${['habit','schedule'].map(t=>`<button data-t="${t}" class="${t===type?'on':''}" onclick="switchSeg('${t}')">${{habit:'Habit',schedule:'Schedule'}[t]}</button>`).join('')}</div><div id="formArea"></div>`;
+  document.getElementById('modalBody').innerHTML=`<div class="seg">${['habit','schedule','dailyTask'].map(t=>`<button data-t="${t}" class="${t===type?'on':''}" onclick="switchSeg('${t}')">${{habit:'Habit',schedule:'Schedule',dailyTask:'Daily Task'}[t]}</button>`).join('')}</div><div id="formArea"></div>`;
   window._modalType=type;fillForm();document.getElementById('overlay').classList.add('show');
 }
 function switchSeg(t){window._modalType=t;document.querySelectorAll('.seg button').forEach(b=>b.className=b.dataset.t===t?'on':'');fillForm();}
@@ -499,6 +552,12 @@ function fillForm(){
   const t=window._modalType;
   const area=document.getElementById('formArea');
   if(t==='schedule'){area.innerHTML=schedForm();durHint();}
+  else if(t==='dailyTask'){
+    area.innerHTML=`<h2>New daily task</h2>
+    <div class="field"><label>Task</label><input id="dtTitle" placeholder="e.g. Drink 2L of water"></div>
+    <p class="meta">This task appears every day and contributes to your daily and weekly completion.</p>
+    <div class="modalfoot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn" onclick="submitDailyTask()">Add daily task</button></div>`;
+  }
   else if(t==='habit'){
     area.innerHTML=`<h2>New habit</h2>
     <div class="field"><label>Name</label><input id="hName" placeholder="e.g. Read 10 pages"></div>
